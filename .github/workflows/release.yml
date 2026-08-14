@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v5.0.0)'
+        required: true
+        default: 'v5.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-zip:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile GUI
+        shell: pwsh
+        run: |
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /target:winexe /optimize+ /platform:anycpu `
+            /reference:System.Windows.Forms.dll /reference:System.Drawing.dll `
+            /win32manifest:app.manifest /out:PC-Otimizador.exe GuiNative.cs
+
+      - name: Pack release folder
+        shell: pwsh
+        run: |
+          $out = 'PC-Otimizador-Release'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item Executar.bat,Engine.ps1,PC-Otimizador-CLI.ps1,PC-Otimizador.ps1,PC-Otimizador.exe,LEIA-ME.txt,LICENSE,README.md $out -ErrorAction SilentlyContinue
+          Compress-Archive -Path "$out\*" -DestinationPath 'PC-Otimizador-Windows.zip' -Force
+
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: PC Otimizador Pro ${{ steps.tag.outputs.name }}
+          generate_release_notes: true
+          files: PC-Otimizador-Windows.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

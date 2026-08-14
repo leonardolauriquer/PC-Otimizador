@@ -1,28 +1,10 @@
-PC OTIMIZADOR PRO v4
+PC OTIMIZADOR PRO v5
 ====================
+Executar.bat (Admin)
 
-COMECE: clique em Executar.bat (como Administrador)
+1 Limpeza Segura ★
+5 Notebook | 8 Dry-run | H Health | W Whitelist | B Bloat | G GUI
 
-MENU RAPIDO
------------
-1 Limpeza Segura     ★
-2 Turbo / Gamer
-3 Reparar Internet
-4 Completo
-5 Notebook (bateria)
-6 Personalizar
-7 Varrer + estimar MB
-8 Dry-run (simular)
-9 Agendar semanal
-R Remover agenda
-G Interface grafica
-0 Sair
-
-Nos presets: E=executar  D=dry-run  M=so estimar
-
-LOGS: Documentos\PC-Otimizador-Logs\
-
-ARQUIVOS JUNTOS: Executar.bat + Engine.ps1 + PC-Otimizador-CLI.ps1
-(Opcional: PC-Otimizador.exe)
-
-Nao apaga Documentos, Fotos, Downloads, favoritos ou senhas.
+Progresso ao vivo + Cancelar na GUI (.exe)
+Logs: Documentos\PC-Otimizador-Logs\
+Nao apaga Documentos/Fotos/Downloads.

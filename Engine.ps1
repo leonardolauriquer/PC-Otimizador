@@ -4,6 +4,10 @@ $ErrorActionPreference = 'Continue'
 $script:DryRun = $false
 $script:SessionLogFile = $null
 $script:UiLang = 'pt'
+$script:CancelRequested = $false
+$script:CancelFile = Join-Path $env:TEMP 'pc-otimizador-cancel.flag'
+$script:Whitelist = New-Object System.Collections.Generic.List[string]
+$script:ProgressCallback = $null
 function Test-IsAdmin {
   $id = [Security.Principal.WindowsIdentity]::GetCurrent()
   $p = New-Object Security.Principal.WindowsPrincipal($id)
@@ -24,10 +28,19 @@ function Get-FolderSizeMB {
 function Remove-PathSafe {
   param([string]$Path, [switch]$Recurse)
   if (-not (Test-Path -LiteralPath $Path)) { return 0 }
+  if (Test-PathWhitelisted $Path) {
+    Write-Log ("Whitelist: protegido, nao remove {0}" -f $Path) 'WARN'
+    return 0
+  }
   $before = Get-FolderSizeMB $Path
+  if ($script:DryRun) {
+    Write-Log ("[DRY-RUN] Removeria: {0} (~{1} MB)" -f $Path, $before)
+    return $before
+  }
   try {
     if ($Recurse) {
       Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        if (Test-PathWhitelisted $_.FullName) { return }
         Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
       }
     } else {
@@ -46,6 +59,7 @@ function Write-Log {
     default { 'DarkCyan' }
   }
   try { Write-Host $line -ForegroundColor $color } catch {}
+  try { [Console]::Out.WriteLine(("##LOG##|{0}|{1}" -f $Level, $Message)) } catch {}
   if ($script:SessionLogFile) {
     try { Add-Content -LiteralPath $script:SessionLogFile -Value $line -Encoding UTF8 } catch {}
   }
@@ -521,10 +535,265 @@ function Invoke-ScanOnly {
 # ── v4: session log, estimates, presets, schedule, i18n ───────────────────────
 function Get-T {
   param([string]$Key)
-  $pt = @{ dry='Simulacao (dry-run)'; done='Concluido'; logSaved='Log salvo em'; weeklyOk='Limpeza semanal agendada (domingo 10:00)'; weeklyOff='Agendamento semanal removido'; notebook='Perfil Notebook' }
-  $en = @{ dry='Dry-run simulation'; done='Done'; logSaved='Log saved to'; weeklyOk='Weekly cleanup scheduled (Sunday 10:00)'; weeklyOff='Weekly schedule removed'; notebook='Notebook profile' }
+  $pt = @{
+    dry='Simulacao (dry-run)'; done='Concluido'; logSaved='Log salvo em'
+    weeklyOk='Limpeza semanal agendada (domingo 10:00)'; weeklyOff='Agendamento semanal removido'
+    notebook='Perfil Notebook'; cancelled='Cancelado pelo usuario'; health='Health Score'
+    ssd='SSD detectado'; hdd='HDD detectado'; whitelist='Whitelist'; bloat='Bloatware'
+    before='Antes'; after='Depois'; scoreTip='0=ruim · 100=otimo'
+  }
+  $en = @{
+    dry='Dry-run simulation'; done='Done'; logSaved='Log saved to'
+    weeklyOk='Weekly cleanup scheduled (Sunday 10:00)'; weeklyOff='Weekly schedule removed'
+    notebook='Notebook profile'; cancelled='Cancelled by user'; health='Health Score'
+    ssd='SSD detected'; hdd='HDD detected'; whitelist='Whitelist'; bloat='Bloatware'
+    before='Before'; after='After'; scoreTip='0=poor · 100=great'
+  }
   $map = if ($script:UiLang -eq 'en') { $en } else { $pt }
   if ($map.ContainsKey($Key)) { return $map[$Key] } else { return $Key }
+}
+
+function Write-ProgressLine {
+  param([int]$Current, [int]$Total, [string]$Name)
+  $pct = if ($Total -gt 0) { [math]::Min(100, [int](($Current * 100) / $Total)) } else { 0 }
+  $msg = '##PROGRESS##|{0}|{1}|{2}|{3}' -f $Current, $Total, ($Name -replace '\|', '/'), $pct
+  try { [Console]::Out.WriteLine($msg) } catch {}
+  if ($script:ProgressCallback) { try { & $script:ProgressCallback $Current $Total $Name $pct } catch {} }
+}
+
+function Test-CancelRequested {
+  if ($script:CancelRequested) { return $true }
+  if (Test-Path -LiteralPath $script:CancelFile) {
+    $script:CancelRequested = $true
+    return $true
+  }
+  return $false
+}
+
+function Reset-CancelFlag {
+  $script:CancelRequested = $false
+  Remove-Item -LiteralPath $script:CancelFile -Force -ErrorAction SilentlyContinue
+}
+
+function Request-Cancel {
+  $script:CancelRequested = $true
+  Set-Content -LiteralPath $script:CancelFile -Value '1' -Encoding ASCII -Force
+}
+
+function Get-WhitelistPath {
+  $dir = Join-Path $env:USERPROFILE 'Documents\PC-Otimizador-Logs'
+  if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+  Join-Path $dir 'whitelist.txt'
+}
+
+function Import-Whitelist {
+  $script:Whitelist.Clear()
+  $wf = Get-WhitelistPath
+  # always protect personal roots
+  foreach ($p in @(
+    [Environment]::GetFolderPath('MyDocuments'),
+    [Environment]::GetFolderPath('MyPictures'),
+    [Environment]::GetFolderPath('MyVideos'),
+    [Environment]::GetFolderPath('Desktop'),
+    (Join-Path $env:USERPROFILE 'Downloads')
+  )) {
+    if ($p) { [void]$script:Whitelist.Add($p) }
+  }
+  if (Test-Path $wf) {
+    Get-Content $wf -ErrorAction SilentlyContinue | Where-Object { $_ -and $_.Trim() } | ForEach-Object {
+      [void]$script:Whitelist.Add($_.Trim())
+    }
+  }
+}
+
+function Add-WhitelistPath {
+  param([string]$Path)
+  if (-not $Path) { return }
+  Import-Whitelist
+  if (-not ($script:Whitelist -contains $Path)) {
+    Add-Content -LiteralPath (Get-WhitelistPath) -Value $Path -Encoding UTF8
+    [void]$script:Whitelist.Add($Path)
+  }
+  Write-Log ("Whitelist +: {0}" -f $Path)
+}
+
+function Test-PathWhitelisted {
+  param([string]$Path)
+  if (-not $Path) { return $false }
+  if (-not $script:Whitelist -or $script:Whitelist.Count -eq 0) { Import-Whitelist }
+  $full = $Path
+  try { $full = [IO.Path]::GetFullPath($Path) } catch {}
+  foreach ($w in $script:Whitelist) {
+    if (-not $w) { continue }
+    $ww = $w
+    try { $ww = [IO.Path]::GetFullPath($w) } catch {}
+    if ($full.StartsWith($ww, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+  }
+  return $false
+}
+
+function Get-DriveMediaInfo {
+  $info = [pscustomobject]@{ HasSSD = $false; HasHDD = $false; Details = @() }
+  try {
+    Get-PhysicalDisk -ErrorAction Stop | ForEach-Object {
+      $media = [string]$_.MediaType
+      $info.Details += ("{0}: {1}" -f $_.FriendlyName, $media)
+      if ($media -match 'SSD|Solid') { $info.HasSSD = $true }
+      if ($media -match 'HDD|Unspecified' -or $_.MediaType -eq 3) { $info.HasHDD = $true }
+      if ($media -eq '4' -or $media -eq 'SSD') { $info.HasSSD = $true }
+    }
+  } catch {
+    try {
+      $model = (Get-CimInstance Win32_DiskDrive | Select-Object -First 1).Model
+      if ($model -match 'SSD|NVMe|Solid') { $info.HasSSD = $true } else { $info.HasHDD = $true }
+      $info.Details += $model
+    } catch {}
+  }
+  return $info
+}
+
+function Get-HealthScore {
+  $s = Get-SystemSnapshot
+  $score = 100
+  # disk pressure
+  if ($s.DiskUsed -ge 95) { $score -= 40 }
+  elseif ($s.DiskUsed -ge 85) { $score -= 25 }
+  elseif ($s.DiskUsed -ge 75) { $score -= 15 }
+  elseif ($s.DiskUsed -ge 60) { $score -= 5 }
+  # RAM
+  $ramPct = if ($s.RamTot -gt 0) { ($s.RamUsed / $s.RamTot) * 100 } else { 50 }
+  if ($ramPct -ge 90) { $score -= 20 }
+  elseif ($ramPct -ge 80) { $score -= 10 }
+  # reclaimable junk
+  $junk = (Get-OptionEstimateMB 'temp') + (Get-OptionEstimateMB 'update') + (Get-OptionEstimateMB 'wer')
+  if ($junk -ge 5000) { $score -= 20 }
+  elseif ($junk -ge 2000) { $score -= 12 }
+  elseif ($junk -ge 500) { $score -= 6 }
+  if (-not (Test-IsAdmin)) { $score -= 5 }
+  $score = [math]::Max(0, [math]::Min(100, [int]$score))
+  $grade = if ($score -ge 85) { 'A' } elseif ($score -ge 70) { 'B' } elseif ($score -ge 50) { 'C' } elseif ($score -ge 30) { 'D' } else { 'E' }
+  [pscustomobject]@{
+    Score = $score
+    Grade = $grade
+    DiskUsed = $s.DiskUsed
+    DiskFreeGB = $s.DiskFree
+    RamPct = [math]::Round($ramPct, 1)
+    JunkMB = [math]::Round($junk, 0)
+    Snapshot = $s
+  }
+}
+
+function Get-BloatPackageCandidates {
+  $names = @(
+    'Microsoft.BingNews', 'Microsoft.BingWeather', 'Microsoft.GetHelp', 'Microsoft.Getstarted',
+    'Microsoft.MicrosoftOfficeHub', 'Microsoft.MicrosoftSolitaireCollection', 'Microsoft.People',
+    'Microsoft.SkypeApp', 'Microsoft.WindowsFeedbackHub', 'Microsoft.Xbox.TCUI',
+    'Microsoft.XboxApp', 'Microsoft.XboxGameOverlay', 'Microsoft.XboxGamingOverlay',
+    'Microsoft.XboxIdentityProvider', 'Microsoft.XboxSpeechToTextOverlay', 'Microsoft.YourPhone',
+    'Microsoft.ZuneMusic', 'Microsoft.ZuneVideo', 'king.com.CandyCrushSaga', 'Disney.37853FC22B2CE'
+  )
+  $found = @()
+  foreach ($n in $names) {
+    $pkgs = Get-AppxPackage -Name $n -ErrorAction SilentlyContinue
+    foreach ($p in $pkgs) {
+      $found += [pscustomobject]@{ Name = $p.Name; PackageFullName = $p.PackageFullName }
+    }
+  }
+  return $found
+}
+
+function Remove-BloatPackages {
+  param([string[]]$PackageFullNames, [switch]$WhatIf)
+  $removed = 0
+  foreach ($pfn in $PackageFullNames) {
+    if (Test-CancelRequested) { break }
+    Write-Log ("Bloat: removendo {0}" -f $pfn)
+    if ($WhatIf -or $script:DryRun) { Write-Log ("[DRY-RUN] Remove-AppxPackage {0}" -f $pfn); continue }
+    try {
+      Remove-AppxPackage -Package $pfn -ErrorAction Stop
+      $removed++
+    } catch {
+      Write-Log ("Bloat falhou: {0}" -f $_) 'WARN'
+    }
+  }
+  return $removed
+}
+
+function Invoke-OptimizationBatch {
+  param(
+    [string[]]$Ids,
+    [hashtable]$Actions,
+    [switch]$DryRun,
+    [switch]$EstimateOnly
+  )
+  Reset-CancelFlag
+  Import-Whitelist
+  $script:DryRun = [bool]$DryRun
+  $null = Initialize-SessionLog
+  $before = Get-SystemSnapshot
+  $media = Get-DriveMediaInfo
+  if ($media.HasSSD) { Write-Log (Get-T 'ssd') } elseif ($media.HasHDD) { Write-Log (Get-T 'hdd') }
+  if ($Ids -contains 'prefetch' -and $media.HasSSD) {
+    Write-Log 'Aviso: Prefetch em SSD costuma ter pouco beneficio.' 'WARN'
+  }
+  if ($Ids -contains 'trim' -and (-not $media.HasSSD) -and $media.HasHDD) {
+    Write-Log 'TRIM em HDD: Optimize-Volume ainda pode ajudar (desfrag analise).' 'WARN'
+  }
+
+  Write-Log ("Inicio batch | itens={0} | dry={1}" -f $Ids.Count, $script:DryRun)
+  try { [Console]::Out.WriteLine(('##RESULT##|BEFORE|{0}|{1}|{2}|{3}' -f $before.DiskFree, $before.DiskTot, $before.RamUsed, $before.RamTot)) } catch {}
+  $est = Write-EstimatesReport -Ids $Ids
+  if ($EstimateOnly -or $DryRun) {
+    if ($DryRun) {
+      $i = 0
+      foreach ($id in $Ids) {
+        $i++
+        if (Test-CancelRequested) { Write-Log (Get-T 'cancelled') 'WARN'; break }
+        $n = if ($Actions.ContainsKey($id)) { $Actions[$id].Nome } else { $id }
+        Write-ProgressLine -Current $i -Total $Ids.Count -Name $n
+        Write-Log ("[DRY-RUN] Executaria: {0}" -f $n)
+      }
+    }
+    $path = Complete-SessionLog -Summary ("Estimativa total: ~{0} MB" -f $est)
+    $after = Get-SystemSnapshot
+    try { [Console]::Out.WriteLine(('##RESULT##|AFTER|{0}|{1}|{2}|{3}|{4}|{5}|0' -f $after.DiskFree, $after.DiskTot, $after.RamUsed, $after.RamTot, $est, $path)) } catch {}
+    return [pscustomobject]@{
+      FreedMB = 0; DeltaGB = 0; Log = $path; EstimatedMB = $est
+      Before = $before; After = $after; Cancelled = [bool]$script:CancelRequested; Health = (Get-HealthScore)
+    }
+  }
+
+  $freed = 0.0
+  $order = @($Ids | Sort-Object { if ($_ -eq 'restore') { 0 } else { 1 } })
+  # filter trim suggestion already logged; still allow if selected
+  $i = 0
+  $cancelled = $false
+  foreach ($id in $order) {
+    $i++
+    if (Test-CancelRequested) { $cancelled = $true; Write-Log (Get-T 'cancelled') 'WARN'; break }
+    if (-not $Actions.ContainsKey($id)) { continue }
+    $o = $Actions[$id]
+    Write-ProgressLine -Current $i -Total $order.Count -Name $o.Nome
+    Write-Log (">> [{0}/{1}] {2}" -f $i, $order.Count, $o.Nome)
+    try {
+      $f = & $o.Act
+      if ($f) { $freed += [double]$f }
+    } catch { Write-Log "Erro $id : $_" 'ERROR' }
+  }
+  $after = Get-SystemSnapshot
+  $delta = [math]::Round($after.DiskFree - $before.DiskFree, 2)
+  $sum = ("Freed~{0:N0} MB | Disco +{1} GB | cancel={2}" -f $freed, $delta, $cancelled)
+  Write-Log $sum
+  $path = Complete-SessionLog -Summary $sum
+  $health = Get-HealthScore
+  try {
+    [Console]::Out.WriteLine(('##RESULT##|AFTER|{0}|{1}|{2}|{3}|{4}|{5}|{6}' -f $after.DiskFree, $after.DiskTot, $after.RamUsed, $after.RamTot, [math]::Round($freed,1), $path, $health.Score))
+    [Console]::Out.WriteLine(('##DONE##|{0}' -f $(if ($cancelled) { 'CANCELLED' } else { 'OK' })))
+  } catch {}
+  return [pscustomobject]@{
+    FreedMB = $freed; DeltaGB = $delta; Log = $path; EstimatedMB = $est
+    Before = $before; After = $after; Cancelled = $cancelled; Health = $health
+  }
 }
 
 function Initialize-SessionLog {
@@ -626,47 +895,4 @@ function Register-WeeklyCleanup {
 function Unregister-WeeklyCleanup {
   Unregister-ScheduledTask -TaskName 'PCOtimizadorProWeekly' -Confirm:$false -EA SilentlyContinue
   Write-Log (Get-T 'weeklyOff')
-}
-
-function Invoke-OptimizationBatch {
-  param(
-    [string[]]$Ids,
-    [hashtable]$Actions,
-    [switch]$DryRun,
-    [switch]$EstimateOnly
-  )
-  $script:DryRun = [bool]$DryRun
-  $null = Initialize-SessionLog
-  $before = Get-SystemSnapshot
-  Write-Log ("Inicio batch | itens={0} | dry={1}" -f $Ids.Count, $script:DryRun)
-  $est = Write-EstimatesReport -Ids $Ids
-  if ($EstimateOnly -or $DryRun) {
-    if ($DryRun) {
-      foreach ($id in $Ids) {
-        $n = if ($Actions.ContainsKey($id)) { $Actions[$id].Nome } else { $id }
-        Write-Log ("[DRY-RUN] Executaria: {0}" -f $n)
-      }
-    }
-    $path = Complete-SessionLog -Summary ("Estimativa total: ~{0} MB" -f $est)
-    return [pscustomobject]@{ FreedMB = 0; DeltaGB = 0; Log = $path; EstimatedMB = $est }
-  }
-  $freed = 0.0
-  $order = @($Ids | Sort-Object { if ($_ -eq 'restore') { 0 } else { 1 } })
-  $i = 0
-  foreach ($id in $order) {
-    $i++
-    if (-not $Actions.ContainsKey($id)) { continue }
-    $o = $Actions[$id]
-    Write-Log (">> [{0}/{1}] {2}" -f $i, $order.Count, $o.Nome)
-    try {
-      $f = & $o.Act
-      if ($f) { $freed += [double]$f }
-    } catch { Write-Log "Erro $id : $_" 'ERROR' }
-  }
-  $after = Get-SystemSnapshot
-  $delta = [math]::Round($after.DiskFree - $before.DiskFree, 2)
-  $sum = ("Freed~{0:N0} MB | Disco +{1} GB" -f $freed, $delta)
-  Write-Log $sum
-  $path = Complete-SessionLog -Summary $sum
-  return [pscustomobject]@{ FreedMB = $freed; DeltaGB = $delta; Log = $path; EstimatedMB = $est }
 }

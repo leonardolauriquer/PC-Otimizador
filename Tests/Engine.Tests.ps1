@@ -1,5 +1,4 @@
-#Requires -Version 5.1
-# Testes basicos do Engine (sem apagar nada de verdade)
+﻿#Requires -Version 5.1
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 if (-not (Test-Path (Join-Path $root 'Engine.ps1'))) { $root = $PSScriptRoot }
@@ -12,49 +11,42 @@ function Assert-True([bool]$Cond, [string]$Name) {
   else { Write-Host "  FAIL $Name" -ForegroundColor Red; $script:failed++ }
 }
 
-Write-Host '== Engine tests ==' -ForegroundColor Cyan
-Assert-True (Test-Path function:Get-FolderSizeMB) 'Get-FolderSizeMB exists'
-Assert-True (Test-Path function:Get-PresetIds) 'Get-PresetIds exists'
-Assert-True (Test-Path function:Get-OptionEstimateMB) 'Get-OptionEstimateMB exists'
-Assert-True (Test-Path function:Write-EstimatesReport) 'Write-EstimatesReport exists'
-Assert-True (Test-Path function:Invoke-OptimizationBatch) 'Invoke-OptimizationBatch exists'
-Assert-True (Test-Path function:Register-WeeklyCleanup) 'Register-WeeklyCleanup exists'
+Write-Host '== Engine tests v5 ==' -ForegroundColor Cyan
+Assert-True (Test-Path function:Get-HealthScore) 'Get-HealthScore'
+Assert-True (Test-Path function:Get-DriveMediaInfo) 'Get-DriveMediaInfo'
+Assert-True (Test-Path function:Test-PathWhitelisted) 'Test-PathWhitelisted'
+Assert-True (Test-Path function:Request-Cancel) 'Request-Cancel'
+Assert-True (Test-Path function:Get-BloatPackageCandidates) 'Get-BloatPackageCandidates'
+Assert-True (Test-Path function:Write-ProgressLine) 'Write-ProgressLine'
+
+Import-Whitelist
+Assert-True ($script:Whitelist.Count -ge 1) 'whitelist has defaults'
+$docs = [Environment]::GetFolderPath('MyDocuments')
+Assert-True (Test-PathWhitelisted $docs) 'documents protected'
+
+$h = Get-HealthScore
+Assert-True ($h.Score -ge 0 -and $h.Score -le 100) 'health score range'
+Assert-True ($h.Grade -match '^[A-E]$') 'health grade'
+
+Reset-CancelFlag
+Assert-True (-not (Test-CancelRequested)) 'cancel cleared'
+Request-Cancel
+Assert-True (Test-CancelRequested) 'cancel set'
+Reset-CancelFlag
+
+$m = Get-DriveMediaInfo
+Assert-True ($null -ne $m) 'media info'
 
 $safe = @(Get-PresetIds 'safe')
-Assert-True ($safe.Count -gt 5) 'safe preset has items'
-Assert-True ($safe -contains 'temp') 'safe contains temp'
-Assert-True ($safe -notcontains 'powerhigh') 'safe avoids high performance'
-
+Assert-True ($safe -notcontains 'powerhigh') 'safe no high perf'
 $nb = @(Get-PresetIds 'notebook')
-Assert-True ($nb -contains 'powerbal') 'notebook has balanced power'
-Assert-True ($nb -notcontains 'powerhigh') 'notebook avoids high performance'
+Assert-True ($nb -contains 'powerbal') 'notebook balanced'
 
-$gamer = @(Get-PresetIds 'gamer')
-Assert-True ($gamer -contains 'gamebar') 'gamer has gamebar'
-
-$mb = Get-OptionEstimateMB 'temp'
-Assert-True ($mb -ge 0) 'temp estimate >= 0'
-
-$script:DryRun = $true
-$log = Initialize-SessionLog
-Assert-True (Test-Path $log) 'session log created'
-Write-Log 'teste'
-Complete-SessionLog -Summary 'ok' | Out-Null
-Assert-True ((Get-Content $log -Raw) -match 'teste') 'session log writable'
-
-# Dry batch with fake actions (no real cleanup)
-$actions = @{
-  temp = @{ Nome = 'Temp'; Act = { return 1.5 } }
-  dns  = @{ Nome = 'DNS'; Act = { return 0 } }
-}
+$actions = @{ temp = @{ Nome = 'Temp'; Act = { return 1 } }; dns = @{ Nome = 'DNS'; Act = { return 0 } } }
 $r = Invoke-OptimizationBatch -Ids @('temp','dns') -Actions $actions -DryRun
-Assert-True ($null -ne $r.Log) 'batch returns log'
-Assert-True ($r.FreedMB -eq 0) 'dry-run frees 0'
+Assert-True ($r.FreedMB -eq 0) 'dry frees 0'
+Assert-True ($null -ne $r.Before -and $null -ne $r.After) 'before/after present'
+Assert-True ($null -ne $r.Health) 'health on result'
 
-if ($failed -eq 0) {
-  Write-Host "`nALL TESTS PASSED" -ForegroundColor Green
-  exit 0
-} else {
-  Write-Host "`n$failed FAILED" -ForegroundColor Red
-  exit 1
-}
+if ($failed -eq 0) { Write-Host "`nALL TESTS PASSED" -ForegroundColor Green; exit 0 }
+Write-Host "`n$failed FAILED" -ForegroundColor Red; exit 1

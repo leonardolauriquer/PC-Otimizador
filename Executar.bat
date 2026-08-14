@@ -16,19 +16,22 @@ if %errorlevel% neq 0 (
 cls
 echo.
 echo   ============================================================
-echo        PC OTIMIZADOR PRO  v4
+echo        PC OTIMIZADOR PRO  v5
 echo   ============================================================
 echo.
 echo     1. Limpeza Segura ^(recomendado^)
 echo     2. Turbo / Gamer
 echo     3. Reparar Internet
 echo     4. Preset Completo
-echo     5. Notebook ^(bateria / equilibrado^)
+echo     5. Notebook ^(bateria^)
 echo     6. Personalizar
-echo     7. Varrer + estimar MB ^(nao apaga^)
-echo     8. Dry-run Limpeza Segura ^(simular^)
+echo     7. Varrer + Health Score
+echo     8. Dry-run Limpeza Segura
 echo     9. Agendar limpeza semanal
 echo     R. Remover agendamento
+echo     H. Health Score
+echo     W. Whitelist
+echo     B. Bloatware ^(lista + confirma^)
 echo     G. Interface grafica
 echo     0. Sair
 echo.
@@ -44,6 +47,9 @@ if "%OP%"=="7" goto SCAN
 if "%OP%"=="8" goto DRY
 if "%OP%"=="9" goto SCHED
 if /i "%OP%"=="R" goto UNSCHED
+if /i "%OP%"=="H" goto HEALTH
+if /i "%OP%"=="W" goto WHITE
+if /i "%OP%"=="B" goto BLOAT
 if /i "%OP%"=="G" goto GUI
 if "%OP%"=="0" goto FIM
 goto MAIN
@@ -81,15 +87,19 @@ goto MAIN
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0PC-Otimizador-CLI.ps1" -Mode unschedule -AutoYes
 pause
 goto MAIN
+:HEALTH
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0PC-Otimizador-CLI.ps1" -Mode health
+goto MAIN
+:WHITE
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0PC-Otimizador-CLI.ps1" -Mode whitelist
+goto MAIN
+:BLOAT
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0PC-Otimizador-CLI.ps1" -Mode bloat
+goto MAIN
 :GUI
-if exist "%~dp0PC-Otimizador.exe" (
-  start "" "%~dp0PC-Otimizador.exe"
-) else if exist "%~dp0PC-Otimizador.ps1" (
+if exist "%~dp0PC-Otimizador.exe" (start "" "%~dp0PC-Otimizador.exe") else if exist "%~dp0PC-Otimizador.ps1" (
   powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0PC-Otimizador.ps1"
-) else (
-  echo GUI nao encontrada.
-  pause
-)
+) else (echo GUI nao encontrada. & pause)
 goto MAIN
 :FIM
 echo   Ate mais!

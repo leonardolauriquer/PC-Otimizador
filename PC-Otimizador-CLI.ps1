@@ -8,11 +8,12 @@
 param(
   [ValidateSet('safe','gamer','net','full','notebook','')]
   [string]$Preset = '',
-  [ValidateSet('menu','custom','scan','schedule','unschedule','')]
+  [ValidateSet('menu','custom','scan','schedule','unschedule','health','whitelist','bloat','')]
   [string]$Mode = '',
   [switch]$DryRun,
   [switch]$EstimateOnly,
   [switch]$AutoYes,
+  [switch]$StreamProgress,
   [ValidateSet('pt','en')]
   [string]$Lang = 'pt'
 )
@@ -31,6 +32,7 @@ if (-not (Test-IsAdmin)) {
   if ($DryRun) { $pass += '-DryRun' }
   if ($EstimateOnly) { $pass += '-EstimateOnly' }
   if ($AutoYes) { $pass += '-AutoYes' }
+  if ($StreamProgress) { $pass += '-StreamProgress' }
   if ($Lang) { $pass += @('-Lang',$Lang) }
   Start-Process powershell.exe -Verb RunAs -ArgumentList $pass | Out-Null
   exit
@@ -202,10 +204,52 @@ function Start-Gui {
 # Entry points
 if ($Mode -eq 'schedule') { Register-WeeklyCleanup; if (-not $AutoYes) { [void](Read-Host 'Enter') }; exit }
 if ($Mode -eq 'unschedule') { Unregister-WeeklyCleanup; if (-not $AutoYes) { [void](Read-Host 'Enter') }; exit }
+if ($Mode -eq 'health') {
+  Import-Whitelist
+  $h = Get-HealthScore
+  $m = Get-DriveMediaInfo
+  Write-Host ("Health Score: {0}/100 ({1})" -f $h.Score, $h.Grade) -ForegroundColor Cyan
+  Write-Host ("Disco usado: {0}% | Livres: {1} GB | RAM: {2}% | Lixo~{3} MB" -f $h.DiskUsed, $h.DiskFreeGB, $h.RamPct, $h.JunkMB)
+  if ($m.HasSSD) { Write-Host (Get-T 'ssd') -ForegroundColor Green } elseif ($m.HasHDD) { Write-Host (Get-T 'hdd') -ForegroundColor Yellow }
+  try { [Console]::Out.WriteLine(('##HEALTH##|{0}|{1}|Disk {2}%|Free {3}GB|RAM {4}%|Junk {5}MB' -f $h.Score, $h.Grade, $h.DiskUsed, $h.DiskFreeGB, $h.RamPct, $h.JunkMB)) } catch {}
+  if (-not $AutoYes) { [void](Read-Host 'Enter') }
+  exit
+}
+if ($Mode -eq 'whitelist') {
+  Import-Whitelist
+  Write-Host 'Whitelist (pastas protegidas):' -ForegroundColor Cyan
+  $script:Whitelist | ForEach-Object { Write-Host ("  - {0}" -f $_) }
+  Write-Host ("Arquivo: {0}" -f (Get-WhitelistPath)) -ForegroundColor DarkGray
+  Write-Host 'Para adicionar: edite o arquivo ou use Add-WhitelistPath no PowerShell.'
+  if (-not $AutoYes) {
+    Write-Host -NoNewline 'Caminho extra para proteger (Enter pula): '
+    $extra = Read-Host
+    if ($extra) { Add-WhitelistPath $extra }
+  }
+  exit
+}
+if ($Mode -eq 'bloat') {
+  Write-Host 'Bloatware candidatos (AppX):' -ForegroundColor Cyan
+  $cands = @(Get-BloatPackageCandidates)
+  if ($cands.Count -eq 0) { Write-Host 'Nenhum da lista encontrado.'; if (-not $AutoYes) { [void](Read-Host 'Enter') }; exit }
+  $i=1; foreach ($c in $cands) { Write-Host ("  {0}. {1}" -f $i, $c.Name); $i++ }
+  if ($AutoYes) {
+    Write-Host 'AutoYes: nao remove bloat sem confirmacao interativa.' -ForegroundColor Yellow
+    exit
+  }
+  if (Confirm-Go 'Remover TODOS listados? (pode afetar apps da Microsoft Store)') {
+    $script:DryRun = [bool]$DryRun
+    Remove-BloatPackages -PackageFullNames ($cands.PackageFullName) | Out-Null
+  }
+  exit
+}
 if ($Mode -eq 'scan') {
   Clear-Menu; Write-Banner
   $null = Initialize-SessionLog
   Invoke-ScanOnly | Out-Null
+  Write-EstimatesReport (Get-PresetIds 'safe') | Out-Null
+  $h = Get-HealthScore
+  Write-Log ("Health Score: {0}/100 ({1})" -f $h.Score, $h.Grade)
   Complete-SessionLog | Out-Null
   if (-not $AutoYes) { [void](Read-Host 'Enter') }
   exit
@@ -235,6 +279,9 @@ while ($true) {
   Write-Host '   7. So varrer / estimar' -ForegroundColor DarkYellow
   Write-Host '   8. Agendar limpeza semanal (domingo 10h)' -ForegroundColor White
   Write-Host '   9. Remover agendamento' -ForegroundColor DarkGray
+  Write-Host '   H. Health Score' -ForegroundColor Cyan
+  Write-Host '   W. Whitelist (pastas protegidas)' -ForegroundColor Cyan
+  Write-Host '   B. Remover bloatware (lista + confirma)' -ForegroundColor Yellow
   Write-Host '   G. Interface grafica' -ForegroundColor DarkGray
   Write-Host '   L. PT/EN idioma' -ForegroundColor DarkGray
   Write-Host '   0. Sair' -ForegroundColor Yellow
@@ -250,11 +297,31 @@ while ($true) {
       $null = Initialize-SessionLog
       Invoke-ScanOnly | Out-Null
       Write-EstimatesReport (Get-PresetIds 'safe') | Out-Null
+      $h = Get-HealthScore; Write-Host ("  Health: {0}/100 ({1})" -f $h.Score, $h.Grade) -ForegroundColor Cyan
       Complete-SessionLog | Out-Null
       [void](Read-Host 'Enter')
     }
     '8' { Register-WeeklyCleanup; [void](Read-Host 'Enter') }
     '9' { Unregister-WeeklyCleanup; [void](Read-Host 'Enter') }
+    'h' {
+      $h = Get-HealthScore; $m = Get-DriveMediaInfo
+      Write-Host ("  Score {0}/100 ({1}) | Disco {2}% | Lixo~{3}MB" -f $h.Score, $h.Grade, $h.DiskUsed, $h.JunkMB) -ForegroundColor Cyan
+      if ($m.HasSSD) { Write-Host ('  ' + (Get-T 'ssd')) -ForegroundColor Green }
+      [void](Read-Host 'Enter')
+    }
+    'w' {
+      Import-Whitelist
+      $script:Whitelist | ForEach-Object { Write-Host ("  - {0}" -f $_) }
+      Write-Host -NoNewline '  Extra path (Enter pula): '; $x = Read-Host
+      if ($x) { Add-WhitelistPath $x }
+    }
+    'b' {
+      $cands = @(Get-BloatPackageCandidates)
+      if ($cands.Count -eq 0) { Write-Host '  Nenhum bloat da lista.'; [void](Read-Host 'Enter'); continue }
+      $cands | ForEach-Object { Write-Host ("  - {0}" -f $_.Name) }
+      if (Confirm-Go 'Remover todos listados?') { Remove-BloatPackages -PackageFullNames $cands.PackageFullName | Out-Null }
+      [void](Read-Host 'Enter')
+    }
     'g' { Start-Gui }
     'l' {
       $script:UiLang = if ($script:UiLang -eq 'pt') { 'en' } else { 'pt' }
