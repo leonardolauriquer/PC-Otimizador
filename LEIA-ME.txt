@@ -1,37 +1,28 @@
-PC OTIMIZADOR PRO — Menu no .bat (sem antivirus chato)
-======================================================
+PC OTIMIZADOR PRO v4
+====================
 
-COMECE
-------
-Clique duas vezes em: Executar.bat
-(aceite Administrador)
+COMECE: clique em Executar.bat (como Administrador)
 
-HIERARQUIA DO MENU
-------------------
-1 Limpeza Segura     → lista o perfil → Executar
-2 Turbo / Gamer      → idem
-3 Reparar Internet   → idem
-4 Preset Completo    → idem
-5 Personalizar
-     5.1 Limpeza      (marcar [X] item a item)
-     5.2 Performance
-     5.3 Internet
-     5.4 Manutencao
-     5.5 Ver / executar o que marquei
-6 So varrer          → mede espaco, nao apaga
-7 Interface grafica  → janela moderna (opcional)
+MENU RAPIDO
+-----------
+1 Limpeza Segura     ★
+2 Turbo / Gamer
+3 Reparar Internet
+4 Completo
+5 Notebook (bateria)
+6 Personalizar
+7 Varrer + estimar MB
+8 Dry-run (simular)
+9 Agendar semanal
+R Remover agenda
+G Interface grafica
 0 Sair
 
-ARQUIVOS (manter na mesma pasta)
---------------------------------
-Obrigatorio:
-  Executar.bat
-  PC-Otimizador-CLI.ps1
-  Engine.ps1
+Nos presets: E=executar  D=dry-run  M=so estimar
 
-Opcional:
-  PC-Otimizador.ps1   (opcao 7 - GUI)
-  PC-Otimizador.exe   (atalho; pode alertar AV)
+LOGS: Documentos\PC-Otimizador-Logs\
+
+ARQUIVOS JUNTOS: Executar.bat + Engine.ps1 + PC-Otimizador-CLI.ps1
+(Opcional: PC-Otimizador.exe)
 
 Nao apaga Documentos, Fotos, Downloads, favoritos ou senhas.
-Versao 3.2
