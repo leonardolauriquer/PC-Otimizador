@@ -1,0 +1,28 @@
+# Temp / agent junk
+*.log
+*_log.txt
+deploy_*.txt
+scratch/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Build leftovers / AV bait
+*.bak
+*.bak.exe
+*ps2exe*
+PC-Otimizador.old.*.exe
+PC-Otimizador.ps2exe.*
+_pack/
+*.zip
+
+# Compiled binary (rebuild with Compilar-EXE.ps1)
+PC-Otimizador.exe
+
+# Local friend pack copy (regenerate anytime)
+Para-o-Amigo/
+
+# IDE
+.vs/
+.vscode/
+*.user
