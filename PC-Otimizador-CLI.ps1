@@ -94,8 +94,54 @@ function Write-Banner {
   Write-Host '       PC OTIMIZADOR PRO  ·  v5.3' -ForegroundColor Cyan
   Write-Host '  ============================================================' -ForegroundColor DarkCyan
   Write-Host ("  {0} | {1} | Disco {2} GB livres ({3}% usado)" -f $s.PC, $s.OS, $s.DiskFree, $s.DiskUsed) -ForegroundColor DarkGray
-  Write-Host '  Nao apaga Documentos/Fotos/Downloads. Logs em Documentos\PC-Otimizador-Logs' -ForegroundColor DarkGreen
+  Write-Host '  Nao apaga Documentos/Fotos/Downloads. Digite ? para ajuda.' -ForegroundColor DarkGreen
   Write-Host ''
+}
+
+function Show-HelpScreen {
+  Clear-Menu
+  Write-Host ''
+  Write-Host '  ============================================================' -ForegroundColor Cyan
+  Write-Host '       AJUDA — o que cada coisa faz' -ForegroundColor Cyan
+  Write-Host '  ============================================================' -ForegroundColor Cyan
+  Write-Host ''
+  Write-Host '  Limpeza Segura (1)  ' -NoNewline -ForegroundColor Green
+  Write-Host 'Temp, lixeira, caches. Ideal na 1a vez.'
+  Write-Host '  Dry-run / D         ' -NoNewline -ForegroundColor Yellow
+  Write-Host 'Simula sem apagar. Use antes de Executar.'
+  Write-Host '  Turbo/Gamer (2)     ' -NoNewline -ForegroundColor Red
+  Write-Host 'Pode mudar DNS e plano Alto Desempenho.'
+  Write-Host '  Internet (3)        ' -NoNewline -ForegroundColor Red
+  Write-Host 'Pode renovar IP e DNS Cloudflare.'
+  Write-Host '  Notebook (5)        ' -NoNewline -ForegroundColor Cyan
+  Write-Host 'Limpeza + energia equilibrada (bateria).'
+  Write-Host '  Health / Varrer     ' -NoNewline -ForegroundColor Cyan
+  Write-Host 'So medem (nota 0-100 / MB estimados).'
+  Write-Host '  Whitelist (W)       ' -NoNewline -ForegroundColor Cyan
+  Write-Host 'Pastas protegidas — nunca apagadas.'
+  Write-Host '  Agendar (8)         ' -NoNewline -ForegroundColor White
+  Write-Host 'Domingo 10h, so Limpeza Segura.'
+  Write-Host '  Bloat (B)           ' -NoNewline -ForegroundColor Yellow
+  Write-Host 'Lista apps; so remove se voce confirmar.'
+  Write-Host ''
+  Write-Host '  NUNCA apagamos: Documentos, Fotos, Videos, Musica,' -ForegroundColor DarkGreen
+  Write-Host '  Desktop, Downloads, OneDrive.' -ForegroundColor DarkGreen
+  Write-Host '  Logs: Documentos\PC-Otimizador-Logs' -ForegroundColor DarkGray
+  Write-Host ''
+  Write-Host '  Fluxo sugerido: Health -> Dry-run da Segura -> Executar.' -ForegroundColor Yellow
+  Write-Host ''
+  [void](Read-Host '  Enter para voltar')
+}
+
+function Get-PresetBlurb([string]$Key) {
+  switch ($Key) {
+    'safe'     { return 'SAFE: limpa lixo regeneravel. Nao muda DNS/energia.' }
+    'gamer'    { return 'RISK: limpeza + alto desempenho + possivel DNS/rede.' }
+    'net'      { return 'RISK: flush rede; pode renovar IP e DNS Cloudflare.' }
+    'full'     { return 'Limpeza ampla (apps/navegador). Mais demorada.' }
+    'notebook' { return 'SAFE: limpeza + plano equilibrado (bom p/ bateria).' }
+    default    { return '' }
+  }
 }
 function Read-Choice([string]$Prompt='Opcao') {
   Write-Host -NoNewline "  $Prompt > " -ForegroundColor Yellow
@@ -143,16 +189,22 @@ function Show-PresetAndRun([string]$Key, [string]$Titulo) {
   Clear-Menu; Write-Banner
   $ids = @(Get-PresetIds $Key)
   Write-Host "  PERFIL: $Titulo" -ForegroundColor Cyan
+  Write-Host ("  {0}" -f (Get-PresetBlurb $Key)) -ForegroundColor DarkYellow
   Write-Host '  ----------------------------------------------------------' -ForegroundColor DarkGray
-  $n=1; foreach ($id in $ids) { Write-Host ("   {0,2}. {1}" -f $n, $script:Opts[$id].Nome); $n++ }
+  $n=1; foreach ($id in $ids) {
+    $nome = if ($script:Opts.Contains($id)) { $script:Opts[$id].Nome } else { $id }
+    Write-Host ("   {0,2}. {1}" -f $n, $nome); $n++
+  }
   Write-Host ''
-  Write-Host '  [E] Executar  [D] Dry-run  [M] So estimar MB  [V] Voltar' -ForegroundColor Yellow
+  Write-Host '  [E] Executar  [D] Dry-run (simula)  [M] So estimar MB  [?] Ajuda  [V] Voltar' -ForegroundColor Yellow
   if ($AutoYes) { Invoke-SelectedRun $ids; return }
   $c = Read-Choice
   switch ($c) {
     'e' { Invoke-SelectedRun $ids }
     'd' { Invoke-SelectedRun $ids -AsDry }
     'm' { Invoke-SelectedRun $ids -AsEstimate }
+    '?' { Show-HelpScreen; Show-PresetAndRun $Key $Titulo }
+    'h' { Show-HelpScreen; Show-PresetAndRun $Key $Titulo }
   }
 }
 
@@ -282,21 +334,22 @@ if ($Mode -eq 'custom') { Show-CustomHub; exit }
 
 while ($true) {
   Clear-Menu; Write-Banner
-  Write-Host '  MENU PRINCIPAL' -ForegroundColor Cyan
+  Write-Host '  MENU PRINCIPAL  (digite ? para ajuda)' -ForegroundColor Cyan
   Write-Host '  ----------------------------------------------------------' -ForegroundColor DarkGray
-  Write-Host '   1. Limpeza Segura ★' -ForegroundColor Green
-  Write-Host '   2. Turbo / Gamer' -ForegroundColor White
-  Write-Host '   3. Reparar Internet' -ForegroundColor White
-  Write-Host '   4. Preset Completo' -ForegroundColor White
-  Write-Host '   5. Notebook (bateria)' -ForegroundColor Cyan
-  Write-Host '   6. Personalizar' -ForegroundColor Cyan
-  Write-Host '   7. So varrer / estimar' -ForegroundColor DarkYellow
-  Write-Host '   8. Agendar limpeza semanal (domingo 10h)' -ForegroundColor White
+  Write-Host '   1. Limpeza Segura ★     ' -NoNewline -ForegroundColor Green; Write-Host 'temp/lixeira/caches (recomendado)' -ForegroundColor DarkGray
+  Write-Host '   2. Turbo / Gamer        ' -NoNewline -ForegroundColor White; Write-Host 'RISK: DNS/energia' -ForegroundColor DarkYellow
+  Write-Host '   3. Reparar Internet     ' -NoNewline -ForegroundColor White; Write-Host 'RISK: DNS/IP' -ForegroundColor DarkYellow
+  Write-Host '   4. Preset Completo      ' -NoNewline -ForegroundColor White; Write-Host 'limpeza ampla' -ForegroundColor DarkGray
+  Write-Host '   5. Notebook (bateria)   ' -NoNewline -ForegroundColor Cyan; Write-Host 'plano equilibrado' -ForegroundColor DarkGray
+  Write-Host '   6. Personalizar         ' -NoNewline -ForegroundColor Cyan; Write-Host 'escolhe item a item' -ForegroundColor DarkGray
+  Write-Host '   7. So varrer / estimar  ' -NoNewline -ForegroundColor DarkYellow; Write-Host 'nao apaga' -ForegroundColor DarkGray
+  Write-Host '   8. Agendar semanal      ' -NoNewline -ForegroundColor White; Write-Host 'domingo 10h SAFE' -ForegroundColor DarkGray
   Write-Host '   9. Remover agendamento' -ForegroundColor DarkGray
-  Write-Host '   H. Health Score' -ForegroundColor Cyan
-  Write-Host '   W. Whitelist (pastas protegidas)' -ForegroundColor Cyan
-  Write-Host '   B. Remover bloatware (lista + confirma)' -ForegroundColor Yellow
-  Write-Host '   G. Interface grafica' -ForegroundColor DarkGray
+  Write-Host '   H. Health Score         ' -NoNewline -ForegroundColor Cyan; Write-Host 'nota 0-100' -ForegroundColor DarkGray
+  Write-Host '   W. Whitelist            ' -NoNewline -ForegroundColor Cyan; Write-Host 'pastas protegidas' -ForegroundColor DarkGray
+  Write-Host '   B. Bloatware            ' -NoNewline -ForegroundColor Yellow; Write-Host 'lista + confirma' -ForegroundColor DarkGray
+  Write-Host '   G. Interface grafica    ' -NoNewline -ForegroundColor DarkGray; Write-Host 'tooltips' -ForegroundColor DarkGray
+  Write-Host '   ?. Ajuda' -ForegroundColor Green
   Write-Host '   L. PT/EN idioma' -ForegroundColor DarkGray
   Write-Host '   0. Sair' -ForegroundColor Yellow
   switch (Read-Choice) {
@@ -308,6 +361,7 @@ while ($true) {
     '6' { Show-CustomHub }
     '7' {
       Clear-Menu; Write-Banner
+      Write-Host '  Modo varrer: estima espaco, nao apaga.' -ForegroundColor Yellow
       $null = Initialize-SessionLog
       Invoke-ScanOnly | Out-Null
       Write-EstimatesReport (Get-PresetIds 'safe') | Out-Null
@@ -315,21 +369,28 @@ while ($true) {
       Complete-SessionLog | Out-Null
       [void](Read-Host 'Enter')
     }
-    '8' { Register-WeeklyCleanup; [void](Read-Host 'Enter') }
+    '8' {
+      Write-Host '  Agenda so Limpeza Segura (sem DNS/energia), domingo 10h.' -ForegroundColor Yellow
+      if (Confirm-Go 'Criar agendamento?') { Register-WeeklyCleanup }
+      [void](Read-Host 'Enter')
+    }
     '9' { Unregister-WeeklyCleanup; [void](Read-Host 'Enter') }
     'h' {
       $h = Get-HealthScore; $m = Get-DriveMediaInfo
       Write-Host ("  Score {0}/100 ({1}) | Disco {2}% | Lixo~{3}MB" -f $h.Score, $h.Grade, $h.DiskUsed, $h.JunkMB) -ForegroundColor Cyan
+      Write-Host '  Quanto maior o score, melhor. Nao altera o PC.' -ForegroundColor DarkGray
       if ($m.HasSSD) { Write-Host ('  ' + (Get-T 'ssd')) -ForegroundColor Green }
       [void](Read-Host 'Enter')
     }
     'w' {
       Import-Whitelist
+      Write-Host '  Pastas que NUNCA serao apagadas:' -ForegroundColor Cyan
       $script:Whitelist | ForEach-Object { Write-Host ("  - {0}" -f $_) }
-      Write-Host -NoNewline '  Extra path (Enter pula): '; $x = Read-Host
+      Write-Host -NoNewline '  Extra path para proteger (Enter pula): '; $x = Read-Host
       if ($x) { Add-WhitelistPath $x }
     }
     'b' {
+      Write-Host '  Lista candidatos; so remove se voce confirmar.' -ForegroundColor Yellow
       $cands = @(Get-BloatPackageCandidates)
       if ($cands.Count -eq 0) { Write-Host '  Nenhum bloat da lista.'; [void](Read-Host 'Enter'); continue }
       $cands | ForEach-Object { Write-Host ("  - {0}" -f $_.Name) }
@@ -337,6 +398,8 @@ while ($true) {
       [void](Read-Host 'Enter')
     }
     'g' { Start-Gui }
+    '?' { Show-HelpScreen }
+    'ajuda' { Show-HelpScreen }
     'l' {
       $script:UiLang = if ($script:UiLang -eq 'pt') { 'en' } else { 'pt' }
       Write-Host ("  Lang = {0}" -f $script:UiLang) -ForegroundColor Cyan; Start-Sleep 1

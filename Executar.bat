@@ -19,20 +19,24 @@ echo   ============================================================
 echo        PC OTIMIZADOR PRO  v5.3
 echo   ============================================================
 echo.
-echo     1. Limpeza Segura ^(recomendado^)
-echo     2. Turbo / Gamer
-echo     3. Reparar Internet
-echo     4. Preset Completo
-echo     5. Notebook ^(bateria^)
-echo     6. Personalizar
-echo     7. Varrer + Health Score
-echo     8. Dry-run Limpeza Segura
-echo     9. Agendar limpeza semanal
+echo   Dica: 1 = mais seguro. 8 = so simula. G = tela com ajuda.
+echo   Nunca apaga Documentos/Fotos/Downloads. Logs em Documentos.
+echo.
+echo     1. Limpeza Segura ^(recomendado - temp/lixeira/caches^)
+echo     2. Turbo / Gamer ^(ATENCAO: pode mudar DNS/energia^)
+echo     3. Reparar Internet ^(ATENCAO: DNS/IP^)
+echo     4. Preset Completo ^(limpeza ampla, mais demorado^)
+echo     5. Notebook ^(bateria - plano equilibrado^)
+echo     6. Personalizar ^(escolhe item a item^)
+echo     7. Varrer + Health Score ^(so mede, nao apaga^)
+echo     8. Dry-run Limpeza Segura ^(simula sem apagar^)
+echo     9. Agendar limpeza semanal ^(domingo 10h, so SAFE^)
 echo     R. Remover agendamento
-echo     H. Health Score
-echo     W. Whitelist
-echo     B. Bloatware ^(lista + confirma^)
-echo     G. Interface grafica
+echo     H. Health Score ^(0-100^)
+echo     W. Whitelist ^(pastas protegidas^)
+echo     B. Bloatware ^(lista + voce confirma^)
+echo     G. Interface grafica ^(tooltips / Ajuda^)
+echo     ?. Ajuda rapida
 echo     0. Sair
 echo.
 set /p "OP=  Opcao > "
@@ -51,6 +55,8 @@ if /i "%OP%"=="H" goto HEALTH
 if /i "%OP%"=="W" goto WHITE
 if /i "%OP%"=="B" goto BLOAT
 if /i "%OP%"=="G" goto GUI
+if "%OP%"=="?" goto HELP
+if /i "%OP%"=="ajuda" goto HELP
 if "%OP%"=="0" goto FIM
 goto MAIN
 
@@ -104,6 +110,29 @@ if exist "%~dp0PC-Otimizador.exe" (
   echo PC-Otimizador.ps1 e legado e nao e mais a entrada padrao.
   pause
 )
+goto MAIN
+:HELP
+cls
+echo.
+echo   ============================================================
+echo        AJUDA RAPIDA
+echo   ============================================================
+echo.
+echo   1  Limpeza Segura  = temp, lixeira, caches. Mais seguro.
+echo   8  Dry-run         = simula a limpeza 1 SEM apagar.
+echo   2/3 Gamer/Internet = podem mudar DNS ou energia. Cuidado.
+echo   7/H Health/Estimar = so medem o PC, nao apagam.
+echo   W  Whitelist       = pastas que NUNCA serao apagadas.
+echo   G  GUI             = tela com baloes de ajuda (tooltips).
+echo.
+echo   NUNCA apagamos: Documentos, Fotos, Downloads, Desktop,
+echo   Musica, OneDrive.
+echo.
+echo   Logs: Documentos\PC-Otimizador-Logs
+echo.
+echo   Fluxo sugerido: 8 -^> 1  ^(simular, depois limpar^)
+echo.
+pause
 goto MAIN
 :FIM
 echo   Ate mais!
