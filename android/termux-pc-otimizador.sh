@@ -4,13 +4,16 @@
 # Sem root NAO limpa cache de outros apps nem "otimiza o telefone inteiro".
 set -u
 
-VERSION="5.2-android-termux"
+VERSION="5.3-android-termux"
 DRY_RUN=0
 AUTO_YES=0
 LOG_DIR="${HOME}/.pc-otimizador-logs"
 SESSION_LOG=""
 FREED_KB=0
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+CANCEL_FILE="${TMPDIR:-/tmp}/pc-otimizador-cancel.flag"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOAD_PRESET="${SCRIPT_DIR}/../core/load_preset.py"
 
 mkdir -p "$LOG_DIR"
 
@@ -19,7 +22,19 @@ log() {
   local line="[$(date +%H:%M:%S)] [$level] $1"
   printf '%s\n' "$line"
   [[ -n "$SESSION_LOG" ]] && printf '%s\n' "$line" >>"$SESSION_LOG"
+  printf '##LOG##|%s|%s\n' "$level" "$1"
 }
+
+progress() {
+  local cur="$1" total="$2" name="$3"
+  local pct=0
+  (( total > 0 )) && pct=$(( cur * 100 / total ))
+  printf '##PROGRESS##|%s|%s|%s|%s\n' "$cur" "$total" "$name" "$pct"
+  log ">> [$cur/$total] $name"
+}
+
+cancel_requested() { [[ -f "$CANCEL_FILE" ]]; }
+reset_cancel() { rm -f "$CANCEL_FILE" 2>/dev/null || true; }
 
 kb_of() {
   local p="$1"
@@ -36,7 +51,6 @@ human_kb() {
 safe_clean_dir() {
   local p="$1"
   [[ -e "$p" ]] || return 0
-  # nunca tocar storage compartilhado generico sem confirmacao
   case "$p" in
     /sdcard/DCIM*|/sdcard/Download*|/sdcard/Pictures*|/storage/*/DCIM*|/storage/*/Download*)
       log "Protegido (midia/downloads): $p" WARN; return 0 ;;
@@ -70,6 +84,7 @@ finish_log() {
   echo "Liberado~$(human_kb "$FREED_KB")" >>"$SESSION_LOG"
   echo "Fim: $(date)" >>"$SESSION_LOG"
   log "Log: $SESSION_LOG"
+  printf '##DONE##|ok|%s\n' "$(human_kb "$FREED_KB")"
 }
 
 act_termux_cache() {
@@ -86,7 +101,7 @@ act_apt() {
   log "apt clean/autoremove"
 }
 
-act_pip_cache() {
+act_pip() {
   if command -v pip >/dev/null; then
     if (( DRY_RUN == 1 )); then log "[DRY-RUN] pip cache purge"; return 0; fi
     pip cache purge 2>/dev/null || true
@@ -103,13 +118,43 @@ act_tips() {
   log "Este script NAO remove fotos/WhatsApp/Downloads do /sdcard."
 }
 
+preset_ids() {
+  local name="${1:-safe}"
+  if command -v python3 >/dev/null 2>&1 && [[ -f "$LOAD_PRESET" ]]; then
+    local out
+    out="$(python3 "$LOAD_PRESET" android_termux "$name" 2>/dev/null || true)"
+    if [[ -n "$out" ]]; then echo "$out"; return 0; fi
+  fi
+  echo "termux_cache apt pip"
+}
+
+run_action() {
+  case "$1" in
+    termux_cache) act_termux_cache ;;
+    apt) act_apt ;;
+    pip) act_pip ;;
+    *) log "Acao desconhecida: $1" WARN ;;
+  esac
+}
+
 run_safe() {
   FREED_KB=0
+  reset_cancel
   init_log
   log "Escopo: apenas Termux (sandbox). Sem root = sem limpeza global do Android."
-  act_termux_cache
-  act_apt
-  act_pip_cache
+  local ids=( $(preset_ids safe) )
+  local total=${#ids[@]} i=0 id
+  for id in "${ids[@]}"; do
+    if cancel_requested; then
+      log "Cancelado pelo usuario" WARN
+      printf '##DONE##|cancelled\n'
+      finish_log
+      return 1
+    fi
+    i=$((i + 1))
+    progress "$i" "$total" "$id"
+    run_action "$id"
+  done
   act_tips
   finish_log
   log "Concluido. Liberado~$(human_kb "$FREED_KB")"
@@ -129,16 +174,16 @@ banner() {
   echo "       PC OTIMIZADOR  ·  Android/Termux $VERSION"
   echo "  ============================================================"
   echo "  Escopo realista: limpa o Termux, nao o Android inteiro."
+  echo "  Cancel: touch \$TMPDIR/pc-otimizador-cancel.flag"
   echo "  Logs: $LOG_DIR"
   echo
 }
 
-# args
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
     --yes|-y) AUTO_YES=1; shift ;;
-    --preset) shift 2 ;; # only safe exists
+    --preset) shift 2 ;;
     --help|-h) echo "Uso: $0 [--dry-run] [--yes]"; exit 0 ;;
     *) shift ;;
   esac

@@ -589,19 +589,29 @@ function Get-WhitelistPath {
 function Import-Whitelist {
   $script:Whitelist.Clear()
   $wf = Get-WhitelistPath
-  # always protect personal roots
-  foreach ($p in @(
+  # always protect personal roots (boundary-safe matching in Test-PathWhitelisted)
+  $roots = @(
     [Environment]::GetFolderPath('MyDocuments'),
     [Environment]::GetFolderPath('MyPictures'),
     [Environment]::GetFolderPath('MyVideos'),
+    [Environment]::GetFolderPath('MyMusic'),
     [Environment]::GetFolderPath('Desktop'),
-    (Join-Path $env:USERPROFILE 'Downloads')
-  )) {
-    if ($p) { [void]$script:Whitelist.Add($p) }
+    (Join-Path $env:USERPROFILE 'Downloads'),
+    (Join-Path $env:USERPROFILE 'Documents'),
+    (Join-Path $env:USERPROFILE 'Pictures'),
+    (Join-Path $env:USERPROFILE 'Videos'),
+    (Join-Path $env:USERPROFILE 'Music'),
+    (Join-Path $env:USERPROFILE 'OneDrive'),
+    (Join-Path $env:USERPROFILE 'OneDrive - Personal'),
+    (Join-Path $env:USERPROFILE 'Saved Games')
+  )
+  foreach ($p in $roots) {
+    if ($p -and -not ($script:Whitelist -contains $p)) { [void]$script:Whitelist.Add($p) }
   }
   if (Test-Path $wf) {
     Get-Content $wf -ErrorAction SilentlyContinue | Where-Object { $_ -and $_.Trim() } | ForEach-Object {
-      [void]$script:Whitelist.Add($_.Trim())
+      $t = $_.Trim()
+      if (-not ($script:Whitelist -contains $t)) { [void]$script:Whitelist.Add($t) }
     }
   }
 }
@@ -617,17 +627,26 @@ function Add-WhitelistPath {
   Write-Log ("Whitelist +: {0}" -f $Path)
 }
 
+function Test-PathUnderRoot {
+  param([string]$Path, [string]$Root)
+  if (-not $Path -or -not $Root) { return $false }
+  $full = $Path
+  $ww = $Root
+  try { $full = [IO.Path]::GetFullPath($Path) } catch {}
+  try { $ww = [IO.Path]::GetFullPath($Root) } catch {}
+  $full = $full.TrimEnd('\', '/')
+  $ww = $ww.TrimEnd('\', '/')
+  if ([string]::Equals($full, $ww, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+  $prefix = $ww + [IO.Path]::DirectorySeparatorChar
+  return $full.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)
+}
+
 function Test-PathWhitelisted {
   param([string]$Path)
   if (-not $Path) { return $false }
   if (-not $script:Whitelist -or $script:Whitelist.Count -eq 0) { Import-Whitelist }
-  $full = $Path
-  try { $full = [IO.Path]::GetFullPath($Path) } catch {}
   foreach ($w in $script:Whitelist) {
-    if (-not $w) { continue }
-    $ww = $w
-    try { $ww = [IO.Path]::GetFullPath($w) } catch {}
-    if ($full.StartsWith($ww, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    if (Test-PathUnderRoot -Path $Path -Root $w) { return $true }
   }
   return $false
 }
@@ -870,15 +889,61 @@ function Write-EstimatesReport {
   return [math]::Round($sum, 2)
 }
 
+function Get-CorePresetsPath {
+  $p = Join-Path $PSScriptRoot 'core\presets.json'
+  if (Test-Path -LiteralPath $p) { return $p }
+  return $null
+}
+
+function Get-CorePresetsData {
+  $path = Get-CorePresetsPath
+  if (-not $path) { return $null }
+  try {
+    return (Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json)
+  } catch {
+    Write-Log ("presets.json invalido: {0}" -f $_.Exception.Message) 'WARN'
+    return $null
+  }
+}
+
 function Get-PresetIds {
   param([string]$Name)
-  switch ($Name) {
+  $key = if ($Name) { $Name.ToLowerInvariant() } else { 'safe' }
+  $j = Get-CorePresetsData
+  if ($j -and $j.windows) {
+    $prop = $j.windows.PSObject.Properties[$key]
+    if (-not $prop) { $prop = $j.windows.PSObject.Properties['safe'] }
+    if ($prop -and $prop.Value) { return @($prop.Value | ForEach-Object { [string]$_ }) }
+  }
+  # fallback if JSON missing
+  switch ($key) {
     'gamer'    { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','gpu','apps','trim','tips','gamebar','gamemode','bgapps','widgets','powerhigh','dns','arp','nettweak','nagle','dnscloud') }
     'net'      { return @('restore','dns','arp','netbios','nettweak','renewip','dnscloud') }
     'full'     { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','dismcleanup','browser','gpu','apps','store','trim','storage','tips','visual','bgapps','widgets','searchweb','gamebar','gamemode','dns','arp','netbios','nettweak') }
     'notebook' { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','trim','storage','tips','powerbal','bgapps','widgets','dns','arp','netbios','nettweak') }
     default    { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','dismcleanup','trim','storage','tips','dns','arp','netbios','nettweak') }
   }
+}
+
+function Get-ActionRiskLevel {
+  param([string]$Id)
+  if (-not $Id) { return 'safe' }
+  $j = Get-CorePresetsData
+  if ($j -and $j.risk_actions) {
+    $prop = $j.risk_actions.PSObject.Properties[$Id]
+    if ($prop) { return [string]$prop.Value }
+  }
+  switch ($Id) {
+    { $_ -in @('dnscloud','powerhigh','renewip','bloat') } { return 'high' }
+    { $_ -in @('nagle','nettweak') } { return 'medium' }
+    default { return 'safe' }
+  }
+}
+
+function Get-HighRiskActionIds {
+  param([string[]]$Ids)
+  if (-not $Ids) { return @() }
+  return @($Ids | Where-Object { (Get-ActionRiskLevel $_) -eq 'high' } | Select-Object -Unique)
 }
 
 function Register-WeeklyCleanup {

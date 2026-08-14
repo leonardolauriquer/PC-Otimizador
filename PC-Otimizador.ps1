@@ -1,8 +1,8 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  PC Otimizador Pro v3 — UI futurista, fluxo intuitivo (Home -> Opcoes -> Execucao -> Pronto).
-  Nao apaga Documentos, Fotos, Downloads nem arquivos pessoais.
+  [LEGADO] GUI PowerShell — use PC-Otimizador.exe (GuiNative.cs / Compilar-EXE.ps1).
+  Mantido só como fallback de desenvolvimento; a entrada padrão é o .exe.
 #>
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Continue'

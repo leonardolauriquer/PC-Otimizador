@@ -1,10 +1,11 @@
-PC OTIMIZADOR PRO v5
-====================
+PC OTIMIZADOR PRO v5.3
+======================
 Executar.bat (Admin)
 
 1 Limpeza Segura ★
-5 Notebook | 8 Dry-run | H Health | W Whitelist | B Bloat | G GUI
+5 Notebook | 8 Dry-run | H Health | W Whitelist | B Bloat | G GUI (.exe)
 
-Progresso ao vivo + Cancelar na GUI (.exe)
+v5.3: core/presets.json · whitelist boundary · risk confirm · DPI · SHA256 release
 Logs: Documentos\PC-Otimizador-Logs\
-Nao apaga Documentos/Fotos/Downloads.
+Nao apaga Documentos/Fotos/Downloads/Musica/OneDrive.
+Verifique SHA256SUMS.txt nas Releases.

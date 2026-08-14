@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Linux-Bash-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux">
   <img src="https://img.shields.io/badge/macOS-Bash-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Android-Termux-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
-  <img src="https://img.shields.io/badge/v5.2-Multiplataforma-0d9488?style=for-the-badge" alt="v5.2">
+  <img src="https://img.shields.io/badge/v5.3-Trust%20%7C%20core%20presets%20%7C%20risk-0d9488?style=for-the-badge" alt="v5.3">
   <img src="https://img.shields.io/badge/Licença-MIT-22c55e?style=for-the-badge" alt="MIT">
 </p>
 
@@ -77,17 +77,28 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 
 ---
 
+## Novidades v5.3
+
+| Recurso | Descrição |
+|---------|-----------|
+| **core/presets.json** | Fonte da verdade (Windows + Bash via `load_preset.py`) |
+| **Whitelist boundary** | Não confunde `Documents` com `DocumentsBackup` |
+| **Alto risco** | DNS/energia/IP exigem confirmação (`-AllowHighRisk` após UI) |
+| **GUI** | Risk badges, DPI-aware, tema claro completo, cancel+kill |
+| **Release** | Testes no CI + `SHA256SUMS.txt` |
+| **Progresso ao vivo** | Barra + etapa na GUI C# (`##PROGRESS##`) |
+| **Health Score** | 0–100 (disco, RAM, lixo) |
+| **Linux / macOS / Termux** | Adapters Bash alinhados ao core |
+
+---
+
 ## Novidades v5 / v5.2
 
 | Recurso | Descrição |
 |---------|-----------|
-| **Progresso ao vivo** | Barra + etapa na GUI C# (`##PROGRESS##`) |
 | **Cancelar** | Botão / flag em `%TEMP%` |
-| **Health Score** | 0–100 (disco, RAM, lixo) |
-| **Whitelist** | Pastas pessoais + extras |
 | **SSD / HDD** | Detecta mídia; avisa Prefetch em SSD |
 | **Bloatware** | AppX só com confirmação |
-| **Linux / macOS / Termux** | Adapters Bash + `core/presets.json` |
 | **Release ZIP** | Actions em tags `v*` |
 
 ---
@@ -124,10 +135,12 @@ R Remover agenda     H Health   W Whitelist   B Bloat   G GUI   0 Sair
 
 ## Segurança
 
-- Whitelist: Documentos, Fotos, Vídeos, Desktop, Downloads  
+- Whitelist: Documentos, Fotos, Vídeos, Música, Desktop, Downloads, OneDrive  
+- Boundary-safe (prefixo com separador de pasta)  
 - Dry-run e estimativa antes de limpar  
+- DNS / plano de energia / renovar IP = confirmação explícita  
 - Mobile: só sandbox permitido (Termux / docs iOS)  
-- Authenticode: opcional — use `.bat` se o AV reclamar  
+- Release com testes + SHA256; Authenticode opcional — use `.bat` se o AV reclamar  
 
 ---
 
@@ -139,9 +152,9 @@ powershell -ExecutionPolicy Bypass -File .\Compilar-EXE.ps1
 ```
 
 ```bash
-git tag v5.2.0
-git push origin v5.2.0
-# Actions gera PC-Otimizador-Windows.zip (inclui linux/macos/android/core)
+git tag v5.3.0
+git push origin v5.3.0
+# Actions: testes → ZIP + SHA256SUMS.txt
 ```
 
 ---

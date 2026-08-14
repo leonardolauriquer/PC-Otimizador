@@ -16,7 +16,7 @@ if %errorlevel% neq 0 (
 cls
 echo.
 echo   ============================================================
-echo        PC OTIMIZADOR PRO  v5
+echo        PC OTIMIZADOR PRO  v5.3
 echo   ============================================================
 echo.
 echo     1. Limpeza Segura ^(recomendado^)
@@ -97,9 +97,13 @@ goto MAIN
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0PC-Otimizador-CLI.ps1" -Mode bloat
 goto MAIN
 :GUI
-if exist "%~dp0PC-Otimizador.exe" (start "" "%~dp0PC-Otimizador.exe") else if exist "%~dp0PC-Otimizador.ps1" (
-  powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0PC-Otimizador.ps1"
-) else (echo GUI nao encontrada. & pause)
+if exist "%~dp0PC-Otimizador.exe" (
+  start "" "%~dp0PC-Otimizador.exe"
+) else (
+  echo Compile a GUI: powershell -File Compilar-EXE.ps1
+  echo PC-Otimizador.ps1 e legado e nao e mais a entrada padrao.
+  pause
+)
 goto MAIN
 :FIM
 echo   Ate mais!

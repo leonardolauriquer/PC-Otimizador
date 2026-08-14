@@ -1,12 +1,15 @@
 # Core compartilhado
 
-Este diretório define a **política e os presets** comuns entre plataformas.
+Este diretório é a **fonte da verdade** dos presets e da política de risco.
 
 | Arquivo | Uso |
 |---------|-----|
-| `presets.json` | Nomes de presets, ações lógicas, pastas intocáveis |
+| `presets.json` | Presets por plataforma (`windows` / `linux` / `macos` / `android_termux`) + `risk_actions` |
+| `load_preset.py` | Helper para adapters Bash (`python3 core/load_preset.py linux safe`) |
 | `SECURITY.md` | Regras de segurança multiplataforma |
 
-Cada OS tem um **adapter** (`Engine.ps1`, `linux/*.sh`, `macos/*.sh`, …) que implementa as ações com APIs nativas.
+- **Windows:** `Engine.ps1` → `Get-PresetIds` / `Get-HighRiskActionIds` leem o JSON.
+- **Linux/macOS:** `preset_ids()` chama `load_preset.py` com fallback embutido.
+- **iOS:** sem limpeza de sistema (ver `ios/README.md`).
 
 Não misture scripts Windows e Unix no mesmo executável.

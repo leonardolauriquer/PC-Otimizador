@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 <#
-  PC Otimizador Pro — CLI v4
+  PC Otimizador Pro — CLI v5.3
   -Preset safe|gamer|net|full|notebook
   -Mode menu|custom|scan|schedule|unschedule
   -DryRun -EstimateOnly -AutoYes -Lang pt|en
@@ -13,6 +13,7 @@ param(
   [switch]$DryRun,
   [switch]$EstimateOnly,
   [switch]$AutoYes,
+  [switch]$AllowHighRisk,
   [switch]$StreamProgress,
   [ValidateSet('pt','en')]
   [string]$Lang = 'pt'
@@ -32,6 +33,7 @@ if (-not (Test-IsAdmin)) {
   if ($DryRun) { $pass += '-DryRun' }
   if ($EstimateOnly) { $pass += '-EstimateOnly' }
   if ($AutoYes) { $pass += '-AutoYes' }
+  if ($AllowHighRisk) { $pass += '-AllowHighRisk' }
   if ($StreamProgress) { $pass += '-StreamProgress' }
   if ($Lang) { $pass += @('-Lang',$Lang) }
   Start-Process powershell.exe -Verb RunAs -ArgumentList $pass | Out-Null
@@ -89,7 +91,7 @@ function Write-Banner {
   $s = Get-SystemSnapshot
   Write-Host ''
   Write-Host '  ============================================================' -ForegroundColor DarkCyan
-  Write-Host '       PC OTIMIZADOR PRO  ·  v4' -ForegroundColor Cyan
+  Write-Host '       PC OTIMIZADOR PRO  ·  v5.3' -ForegroundColor Cyan
   Write-Host '  ============================================================' -ForegroundColor DarkCyan
   Write-Host ("  {0} | {1} | Disco {2} GB livres ({3}% usado)" -f $s.PC, $s.OS, $s.DiskFree, $s.DiskUsed) -ForegroundColor DarkGray
   Write-Host '  Nao apaga Documentos/Fotos/Downloads. Logs em Documentos\PC-Otimizador-Logs' -ForegroundColor DarkGreen
@@ -111,6 +113,20 @@ function Invoke-SelectedRun {
   if (-not $Ids -or $Ids.Count -eq 0) { Write-Host '  Nada selecionado.' -ForegroundColor Red; Start-Sleep 1; return }
   Write-Host ("  Itens: {0}" -f $Ids.Count) -ForegroundColor Cyan
   if (-not $AsEstimate -and -not $AsDry -and -not (Confirm-Go 'Executar agora?')) { return }
+  if (-not $AsEstimate -and -not $AsDry) {
+    $risky = @(Get-HighRiskActionIds -Ids $Ids)
+    if ($risky.Count -gt 0) {
+      Write-Host ("  ALTO RISCO (DNS / energia / IP): {0}" -f ($risky -join ', ')) -ForegroundColor Red
+      if ($AllowHighRisk) {
+        Write-Log 'AllowHighRisk: usuario ja confirmou na UI/CLI'
+      } elseif ($AutoYes) {
+        Write-Host '  Bloqueado: AutoYes nao aplica alto risco. Confirme no menu ou use -AllowHighRisk.' -ForegroundColor Yellow
+        return
+      } elseif (-not (Confirm-Go 'Confirma acoes de ALTO RISCO? (pode mudar DNS e plano de energia)')) {
+        return
+      }
+    }
+  }
   $actions = @{}
   foreach ($k in $script:Opts.Keys) { $actions[$k] = @{ Nome = $script:Opts[$k].Nome; Act = $script:Opts[$k].Act } }
   $result = Invoke-OptimizationBatch -Ids $Ids -Actions $actions -DryRun:$AsDry -EstimateOnly:$AsEstimate
@@ -193,12 +209,10 @@ function Show-CustomHub {
 }
 
 function Start-Gui {
-  $gui = Join-Path $PSScriptRoot 'PC-Otimizador.ps1'
   $exe = Join-Path $PSScriptRoot 'PC-Otimizador.exe'
   if (Test-Path $exe) { Start-Process $exe -Wait; return }
-  if (Test-Path $gui) {
-    Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$gui`"" -Wait
-  } else { Write-Host 'GUI nao encontrada' -ForegroundColor Red; Start-Sleep 2 }
+  Write-Host 'Compile a GUI nativa: Compilar-EXE.ps1 (PC-Otimizador.ps1 e legado).' -ForegroundColor Yellow
+  Start-Sleep 2
 }
 
 # Entry points

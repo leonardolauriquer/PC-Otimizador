@@ -4,7 +4,7 @@
 set -u
 # nao use set -e: limpeza continua mesmo se um passo falhar
 
-VERSION="5.1-linux"
+VERSION="5.3-linux"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DRY_RUN=0
 AUTO_YES=0
@@ -92,11 +92,14 @@ is_protected() {
   local path="$1"
   ensure_whitelist
   local w
+  # normalize trailing slash; require path boundary (not prefix collision)
+  path="${path%/}"
   while IFS= read -r w; do
     [[ -z "$w" ]] && continue
-    case "$path" in
-      "$w"|"$w"/*) return 0 ;;
-    esac
+    w="${w%/}"
+    if [[ "$path" == "$w" || "$path" == "$w"/* ]]; then
+      return 0
+    fi
   done <"$WHITELIST_FILE"
   return 1
 }
@@ -335,14 +338,24 @@ estimate_safe_kb() {
   echo "$total"
 }
 
-# ── presets ──────────────────────────────────────────────────────────────────
+# ── presets (core/presets.json via python3, fallback local) ───────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CORE_JSON="${SCRIPT_DIR}/../core/presets.json"
+LOAD_PRESET="${SCRIPT_DIR}/../core/load_preset.py"
+
 preset_ids() {
-  case "$1" in
+  local name="${1:-safe}"
+  if command -v python3 >/dev/null 2>&1 && [[ -f "$LOAD_PRESET" ]]; then
+    local out
+    out="$(python3 "$LOAD_PRESET" linux "$name" 2>/dev/null || true)"
+    if [[ -n "$out" ]]; then echo "$out"; return 0; fi
+  fi
+  case "$name" in
     gamer) echo "temp trash cache journal pkg dns flatpak trim" ;;
     net) echo "dns" ;;
     full) echo "temp trash cache journal pkg dns flatpak snap trim" ;;
     notebook) echo "temp trash cache journal pkg dns flatpak" ;;
-    *) echo "temp trash cache journal pkg dns" ;; # safe
+    *) echo "temp trash cache journal pkg dns" ;;
   esac
 }
 

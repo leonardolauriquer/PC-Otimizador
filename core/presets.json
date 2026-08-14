@@ -1,46 +1,45 @@
 {
   "name": "PC Otimizador Pro",
-  "version": "5.2",
+  "version": "5.3",
   "policy": {
     "never_delete": [
-      "Documents",
-      "Documentos",
-      "Pictures",
-      "Fotos",
-      "Imagens",
-      "Videos",
-      "Desktop",
-      "Downloads"
+      "Documents", "Documentos", "Pictures", "Fotos", "Imagens",
+      "Videos", "Music", "Musica", "Desktop", "Downloads", "OneDrive"
     ],
-    "requires_confirmation_for": ["bloat", "upgrade_leftovers", "advanced"],
+    "requires_confirmation_for": ["bloat", "upgrade_leftovers", "advanced", "dnscloud", "powerhigh", "renewip"],
     "mobile_note": "On mobile, only clean what the OS sandbox allows (own app / Termux home). No system-wide wipe."
   },
-  "presets": {
-    "safe": {
-      "title_pt": "Limpeza Segura",
-      "title_en": "Safe Cleanup",
-      "actions": ["temp", "trash", "cache", "pkg", "dns", "logs"]
-    },
-    "gamer": {
-      "title_pt": "Turbo / Gamer",
-      "title_en": "Turbo / Gamer",
-      "actions": ["temp", "trash", "cache", "pkg", "dns", "gpu", "trim"]
-    },
-    "net": {
-      "title_pt": "Reparar Rede/DNS",
-      "title_en": "Fix Network/DNS",
-      "actions": ["dns"]
-    },
-    "notebook": {
-      "title_pt": "Notebook",
-      "title_en": "Laptop",
-      "actions": ["temp", "trash", "cache", "pkg", "dns"]
-    },
-    "full": {
-      "title_pt": "Completo",
-      "title_en": "Full",
-      "actions": ["temp", "trash", "cache", "pkg", "dns", "logs", "gpu", "trim", "flatpak_or_brew"]
-    }
+  "risk_actions": {
+    "dnscloud": "high",
+    "powerhigh": "high",
+    "renewip": "high",
+    "nagle": "medium",
+    "nettweak": "medium",
+    "bloat": "high"
+  },
+  "windows": {
+    "safe": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "cleanmgr", "dismcleanup", "trim", "storage", "tips", "dns", "arp", "netbios", "nettweak"],
+    "gamer": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "gpu", "apps", "trim", "tips", "gamebar", "gamemode", "bgapps", "widgets", "powerhigh", "dns", "arp", "nettweak", "nagle", "dnscloud"],
+    "net": ["restore", "dns", "arp", "netbios", "nettweak", "renewip", "dnscloud"],
+    "full": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "cleanmgr", "dismcleanup", "browser", "gpu", "apps", "store", "trim", "storage", "tips", "visual", "bgapps", "widgets", "searchweb", "gamebar", "gamemode", "dns", "arp", "netbios", "nettweak"],
+    "notebook": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "cleanmgr", "trim", "storage", "tips", "powerbal", "bgapps", "widgets", "dns", "arp", "netbios", "nettweak"]
+  },
+  "linux": {
+    "safe": ["temp", "trash", "cache", "journal", "pkg", "dns"],
+    "gamer": ["temp", "trash", "cache", "journal", "pkg", "dns", "flatpak", "trim"],
+    "net": ["dns"],
+    "full": ["temp", "trash", "cache", "journal", "pkg", "dns", "flatpak", "snap", "trim"],
+    "notebook": ["temp", "trash", "cache", "journal", "pkg", "dns", "flatpak"]
+  },
+  "macos": {
+    "safe": ["temp", "trash", "cache", "brew", "dns"],
+    "gamer": ["temp", "trash", "cache", "brew", "dns"],
+    "net": ["dns"],
+    "full": ["temp", "trash", "cache", "brew", "dns", "logs"],
+    "notebook": ["temp", "trash", "cache", "brew", "dns"]
+  },
+  "android_termux": {
+    "safe": ["termux_cache", "apt", "pip"]
   },
   "platforms": {
     "windows": { "entry": "Executar.bat", "engine": "Engine.ps1" },

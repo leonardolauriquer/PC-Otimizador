@@ -3,7 +3,7 @@
 # Seguro: nao apaga Documents/Pictures/Downloads/Desktop.
 set -u
 
-VERSION="5.2-macos"
+VERSION="5.3-macos"
 DRY_RUN=0
 AUTO_YES=0
 LANG_UI="${LANG_UI:-pt}"
@@ -69,9 +69,13 @@ EOF
 is_protected() {
   local path="$1" w
   ensure_whitelist
+  path="${path%/}"
   while IFS= read -r w; do
     [[ -z "$w" ]] && continue
-    case "$path" in "$w"|"$w"/*) return 0 ;; esac
+    w="${w%/}"
+    if [[ "$path" == "$w" || "$path" == "$w"/* ]]; then
+      return 0
+    fi
   done <"$WHITELIST_FILE"
   return 1
 }
@@ -117,12 +121,18 @@ safe_rm_tree() {
 disk_free_gb() { df -g / 2>/dev/null | awk 'NR==2{print $4}'; }
 disk_used_pct() { df -P / 2>/dev/null | awk 'NR==2{gsub(/%/,"",$5); print $5}'; }
 mem_used_pct() {
-  # rough: pages active+wired / total from vm_stat + sysctl
-  local total page
+  local total page free inactive speculative wired active compressed used
   total=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
   page=$(pagesize 2>/dev/null || echo 4096)
-  # fallback
-  echo 50
+  if (( total <= 0 )); then echo 50; return; fi
+  # vm_stat: free + inactive + speculative ≈ available-ish
+  free=$(vm_stat 2>/dev/null | awk '/Pages free/ {gsub("\\.","",$3); print $3}')
+  inactive=$(vm_stat 2>/dev/null | awk '/Pages inactive/ {gsub("\\.","",$3); print $3}')
+  speculative=$(vm_stat 2>/dev/null | awk '/Pages speculative/ {gsub("\\.","",$3); print $3}')
+  free=${free:-0}; inactive=${inactive:-0}; speculative=${speculative:-0}
+  used=$(( total - (free + inactive + speculative) * page ))
+  (( used < 0 )) && used=0
+  awk -v u="$used" -v t="$total" 'BEGIN{ printf "%d", (u*100)/t }'
 }
 
 health_score() {
@@ -209,8 +219,17 @@ estimate_kb() {
   echo "$t"
 }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOAD_PRESET="${SCRIPT_DIR}/../core/load_preset.py"
+
 preset_ids() {
-  case "$1" in
+  local name="${1:-safe}"
+  if command -v python3 >/dev/null 2>&1 && [[ -f "$LOAD_PRESET" ]]; then
+    local out
+    out="$(python3 "$LOAD_PRESET" macos "$name" 2>/dev/null || true)"
+    if [[ -n "$out" ]]; then echo "$out"; return 0; fi
+  fi
+  case "$name" in
     gamer) echo "temp trash cache brew dns" ;;
     net) echo "dns" ;;
     full) echo "temp trash cache brew dns logs" ;;
