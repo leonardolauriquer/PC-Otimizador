@@ -34,6 +34,7 @@ jobs:
           $out = 'PC-Otimizador-Release'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item Executar.bat,Engine.ps1,PC-Otimizador-CLI.ps1,PC-Otimizador.ps1,PC-Otimizador.exe,LEIA-ME.txt,LICENSE,README.md $out -ErrorAction SilentlyContinue
+          Copy-Item -Recurse linux $out\linux -ErrorAction SilentlyContinue
           Compress-Archive -Path "$out\*" -DestinationPath 'PC-Otimizador-Windows.zip' -Force
 
       - name: Resolve tag

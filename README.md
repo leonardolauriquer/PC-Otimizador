@@ -27,6 +27,17 @@
 
 > Caminho anti-AV: **`Executar.bat`**. O `.exe` é GUI C# nativa (sem ps2exe).
 
+### Linux
+
+```bash
+cd linux
+chmod +x pc-otimizador.sh
+./pc-otimizador.sh
+# ou: ./pc-otimizador.sh --preset safe --yes
+```
+
+Detalhes: [`linux/README.md`](linux/README.md)
+
 ---
 
 ## ✨ Novidades v5
@@ -64,7 +75,8 @@ R Remover agenda     H Health   W Whitelist   B Bloat   G GUI   0 Sair
 | `PC-Otimizador-CLI.ps1` | Menus terminal |
 | `GuiNative.cs` → `PC-Otimizador.exe` | GUI com progresso/cancel |
 | `PC-Otimizador.ps1` | GUI PowerShell alternativa |
-| `Tests/Engine.Tests.ps1` | Testes |
+| `linux/pc-otimizador.sh` | CLI Linux (Bash) |
+| `Tests/Engine.Tests.ps1` | Testes Windows |
 | `.github/workflows/release.yml` | ZIP de release |
 
 **Whitelist:** `Documentos\PC-Otimizador-Logs\whitelist.txt`  
