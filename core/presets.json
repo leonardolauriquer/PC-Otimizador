@@ -1,0 +1,52 @@
+{
+  "name": "PC Otimizador Pro",
+  "version": "5.2",
+  "policy": {
+    "never_delete": [
+      "Documents",
+      "Documentos",
+      "Pictures",
+      "Fotos",
+      "Imagens",
+      "Videos",
+      "Desktop",
+      "Downloads"
+    ],
+    "requires_confirmation_for": ["bloat", "upgrade_leftovers", "advanced"],
+    "mobile_note": "On mobile, only clean what the OS sandbox allows (own app / Termux home). No system-wide wipe."
+  },
+  "presets": {
+    "safe": {
+      "title_pt": "Limpeza Segura",
+      "title_en": "Safe Cleanup",
+      "actions": ["temp", "trash", "cache", "pkg", "dns", "logs"]
+    },
+    "gamer": {
+      "title_pt": "Turbo / Gamer",
+      "title_en": "Turbo / Gamer",
+      "actions": ["temp", "trash", "cache", "pkg", "dns", "gpu", "trim"]
+    },
+    "net": {
+      "title_pt": "Reparar Rede/DNS",
+      "title_en": "Fix Network/DNS",
+      "actions": ["dns"]
+    },
+    "notebook": {
+      "title_pt": "Notebook",
+      "title_en": "Laptop",
+      "actions": ["temp", "trash", "cache", "pkg", "dns"]
+    },
+    "full": {
+      "title_pt": "Completo",
+      "title_en": "Full",
+      "actions": ["temp", "trash", "cache", "pkg", "dns", "logs", "gpu", "trim", "flatpak_or_brew"]
+    }
+  },
+  "platforms": {
+    "windows": { "entry": "Executar.bat", "engine": "Engine.ps1" },
+    "linux": { "entry": "linux/pc-otimizador.sh" },
+    "macos": { "entry": "macos/pc-otimizador.sh" },
+    "android_termux": { "entry": "android/termux-pc-otimizador.sh" },
+    "ios": { "entry": "ios/README.md", "system_cleanup": false }
+  }
+}

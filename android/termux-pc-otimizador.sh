@@ -1,0 +1,164 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# PC Otimizador Pro — Android via Termux
+# Escopo HONESTO: so o ambiente Termux / arquivos que o Termux alcanca.
+# Sem root NAO limpa cache de outros apps nem "otimiza o telefone inteiro".
+set -u
+
+VERSION="5.2-android-termux"
+DRY_RUN=0
+AUTO_YES=0
+LOG_DIR="${HOME}/.pc-otimizador-logs"
+SESSION_LOG=""
+FREED_KB=0
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+
+mkdir -p "$LOG_DIR"
+
+log() {
+  local level="${2:-INFO}"
+  local line="[$(date +%H:%M:%S)] [$level] $1"
+  printf '%s\n' "$line"
+  [[ -n "$SESSION_LOG" ]] && printf '%s\n' "$line" >>"$SESSION_LOG"
+}
+
+kb_of() {
+  local p="$1"
+  if [[ -d "$p" ]]; then du -sk "$p" 2>/dev/null | awk '{print $1}'; else echo 0; fi
+}
+
+human_kb() {
+  local kb="$1"
+  if (( kb > 1048576 )); then awk -v k="$kb" 'BEGIN{printf "%.2f GB", k/1048576}'
+  elif (( kb > 1024 )); then awk -v k="$kb" 'BEGIN{printf "%.1f MB", k/1024}'
+  else echo "${kb} KB"; fi
+}
+
+safe_clean_dir() {
+  local p="$1"
+  [[ -e "$p" ]] || return 0
+  # nunca tocar storage compartilhado generico sem confirmacao
+  case "$p" in
+    /sdcard/DCIM*|/sdcard/Download*|/sdcard/Pictures*|/storage/*/DCIM*|/storage/*/Download*)
+      log "Protegido (midia/downloads): $p" WARN; return 0 ;;
+  esac
+  local kb; kb="$(kb_of "$p")"
+  if (( DRY_RUN == 1 )); then
+    log "[DRY-RUN] Limparia $p (~$(human_kb "$kb"))"
+    FREED_KB=$((FREED_KB + kb)); return 0
+  fi
+  if [[ -d "$p" ]]; then
+    find "$p" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+  else
+    rm -f "$p" 2>/dev/null || true
+  fi
+  FREED_KB=$((FREED_KB + kb))
+  log "Limpo: $p (~$(human_kb "$kb"))"
+}
+
+init_log() {
+  SESSION_LOG="${LOG_DIR}/sessao-$(date +%Y%m%d-%H%M%S).txt"
+  {
+    echo "PC Otimizador Termux $VERSION"
+    echo "Inicio: $(date)"
+    echo "DryRun: $DRY_RUN | HOME=$HOME"
+    echo "----------------------------------------"
+  } >"$SESSION_LOG"
+}
+
+finish_log() {
+  echo "----------------------------------------" >>"$SESSION_LOG"
+  echo "Liberado~$(human_kb "$FREED_KB")" >>"$SESSION_LOG"
+  echo "Fim: $(date)" >>"$SESSION_LOG"
+  log "Log: $SESSION_LOG"
+}
+
+act_termux_cache() {
+  safe_clean_dir "${HOME}/.cache"
+  safe_clean_dir "${PREFIX}/tmp"
+  safe_clean_dir "${PREFIX}/var/cache"
+}
+
+act_apt() {
+  if ! command -v apt >/dev/null; then return 0; fi
+  if (( DRY_RUN == 1 )); then log "[DRY-RUN] apt clean && autoremove"; return 0; fi
+  apt clean 2>/dev/null || true
+  apt autoremove -y 2>/dev/null || true
+  log "apt clean/autoremove"
+}
+
+act_pip_cache() {
+  if command -v pip >/dev/null; then
+    if (( DRY_RUN == 1 )); then log "[DRY-RUN] pip cache purge"; return 0; fi
+    pip cache purge 2>/dev/null || true
+  fi
+  if command -v npm >/dev/null; then
+    if (( DRY_RUN == 1 )); then log "[DRY-RUN] npm cache clean --force"; return 0; fi
+    npm cache clean --force 2>/dev/null || true
+  fi
+}
+
+act_tips() {
+  log "Dica Android (sem root): Ajustes > Armazenamento > Liberar espaco"
+  log "Dica: limpe cache por app em Ajustes > Apps > [app] > Armazenamento"
+  log "Este script NAO remove fotos/WhatsApp/Downloads do /sdcard."
+}
+
+run_safe() {
+  FREED_KB=0
+  init_log
+  log "Escopo: apenas Termux (sandbox). Sem root = sem limpeza global do Android."
+  act_termux_cache
+  act_apt
+  act_pip_cache
+  act_tips
+  finish_log
+  log "Concluido. Liberado~$(human_kb "$FREED_KB")"
+}
+
+confirm() {
+  (( AUTO_YES == 1 )) && return 0
+  printf '  %s [s/N]: ' "$1"
+  read -r r || true
+  [[ "$r" == s || "$r" == S || "$r" == y || "$r" == Y ]]
+}
+
+banner() {
+  clear 2>/dev/null || true
+  echo
+  echo "  ============================================================"
+  echo "       PC OTIMIZADOR  ·  Android/Termux $VERSION"
+  echo "  ============================================================"
+  echo "  Escopo realista: limpa o Termux, nao o Android inteiro."
+  echo "  Logs: $LOG_DIR"
+  echo
+}
+
+# args
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --yes|-y) AUTO_YES=1; shift ;;
+    --preset) shift 2 ;; # only safe exists
+    --help|-h) echo "Uso: $0 [--dry-run] [--yes]"; exit 0 ;;
+    *) shift ;;
+  esac
+done
+
+if (( AUTO_YES == 1 )); then
+  run_safe; exit 0
+fi
+
+while true; do
+  banner
+  echo "   1. Limpeza Segura Termux ★"
+  echo "   2. Dry-run"
+  echo "   3. Dicas Android (sem root)"
+  echo "   0. Sair"
+  printf '  Opcao > '; read -r op || true
+  case "$op" in
+    1) confirm "Limpar caches do Termux?" && { DRY_RUN=0; run_safe; printf '\n  Enter...'; read -r _; } ;;
+    2) DRY_RUN=1; run_safe; DRY_RUN=0; printf '\n  Enter...'; read -r _ ;;
+    3) act_tips; printf '\n  Enter...'; read -r _ ;;
+    0|q|Q) exit 0 ;;
+  esac
+done
