@@ -97,11 +97,14 @@ function Get-OptCatalog {
 }
 
 $script:Presets = @{
-  safe = @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','dismcleanup','trim','storage','tips','dns','arp','netbios','nettweak')
-  gamer = @('restore','temp','recycle','update','delivery','thumbs','wer','logs','gpu','apps','trim','tips','gamebar','gamemode','bgapps','widgets','powerhigh','dns','arp','nettweak','nagle','dnscloud')
-  net = @('restore','dns','arp','netbios','nettweak','renewip','dnscloud')
-  full = @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','dismcleanup','browser','gpu','apps','store','trim','storage','tips','visual','bgapps','widgets','searchweb','gamebar','gamemode','dns','arp','netbios','nettweak')
+  safe     = @(Get-PresetIds 'safe')
+  gamer    = @(Get-PresetIds 'gamer')
+  net      = @(Get-PresetIds 'net')
+  full     = @(Get-PresetIds 'full')
+  notebook = @(Get-PresetIds 'notebook')
 }
+$script:DryRunUi = $false
+$script:LightTheme = $false
 
 # ── UI helpers ───────────────────────────────────────────────────────────────
 function Update-HeroStats {
@@ -259,53 +262,28 @@ function Start-OptimizationRun {
     return
   }
 
-  $summary = "Vai executar $($selected.Count) otimizacoes.`n`nNao apaga fotos, documentos ou downloads.`nFeche jogos e salve o trabalho.`n`nContinuar?"
+  $modeLabel = if ($script:DryRunUi) { 'DRY-RUN (simular)' } else { 'EXECUCAO REAL' }
+  $summary = "$modeLabel`n$($selected.Count) otimizacoes.`n`nNao apaga fotos/documentos/downloads.`nContinuar?"
   if ([Windows.Forms.MessageBox]::Show($summary, 'Confirmar', 'YesNo', 'Question') -ne 'Yes') { return }
 
   Show-Screen 'run'
   $script:LogBox = $script:RunLogBox
   if ($script:LogBox) { $script:LogBox.Clear() }
-  $script:SnapBefore = Get-SystemSnapshot
-  $script:LastFreedMB = 0
   $script:Progress.Value = 0
   $script:ProgressLbl.Text = '0%'
   $script:TaskLbl.Text = 'Preparando...'
   [Windows.Forms.Application]::DoEvents()
 
-  Write-Log '========================================'
-  Write-Log ("Inicio — Disco livre: {0} GB" -f $script:SnapBefore.DiskFree)
-  Write-Log '========================================'
-
-  $order = @($selected | Sort-Object { if ($_ -eq 'restore') { 0 } else { 1 } })
-  $i = 0
-  foreach ($id in $order) {
-    $i++
-    $item = $script:Checks[$id]
-    $pct = [math]::Min(100, [int](($i - 1) * 100 / $order.Count))
-    $script:Progress.Value = $pct
-    $script:ProgressLbl.Text = "$pct%"
-    $script:TaskLbl.Text = $item.Name
-    Write-Log (">> [{0}/{1}] {2}" -f $i, $order.Count, $item.Name)
-    [Windows.Forms.Application]::DoEvents()
-    try {
-      $freed = & $item.Action
-      if ($freed) { $script:LastFreedMB += [double]$freed }
-    } catch {
-      Write-Log "Erro: $_" 'ERROR'
-    }
+  $actions = @{}
+  foreach ($id in $script:Checks.Keys) {
+    $actions[$id] = @{ Nome = $script:Checks[$id].Name; Act = $script:Checks[$id].Action }
   }
-
+  $result = Invoke-OptimizationBatch -Ids $selected -Actions $actions -DryRun:$script:DryRunUi
   $script:Progress.Value = 100
   $script:ProgressLbl.Text = '100%'
   $script:TaskLbl.Text = 'Concluido'
-  $after = Get-SystemSnapshot
-  $delta = [math]::Round($after.DiskFree - $script:SnapBefore.DiskFree, 2)
-  Write-Log '========================================'
-  Write-Log ("Concluido. ~{0:N0} MB estimados | Disco +{1} GB" -f $script:LastFreedMB, $delta)
-  Write-Log 'Reinicie o PC para aplicar tudo.'
-
   if ($script:ResultLbl) {
-    $script:ResultLbl.Text = ("+{0} GB livres no disco C`n{1:N0} MB estimados em limpeza de arquivos`n{2} tarefas concluidas`n`nReinicie o computador para finalizar." -f $delta, $script:LastFreedMB, $order.Count)
+    $script:ResultLbl.Text = ("+{0} GB livres`n~{1:N0} MB limpos`nEstimativa previa ~{2:N0} MB`n`nLog: {3}" -f $result.DeltaGB, $result.FreedMB, $result.EstimatedMB, $result.Log)
   }
   Show-Screen 'done'
 }
@@ -416,23 +394,35 @@ $script:GaugeText.Font = New-Object Drawing.Font('Segoe UI', 9)
 $home.Controls.Add($script:GaugeText)
 
 # Profile cards
-$home.Controls.Add((New-GlowCard 10 180 300 160 'Limpeza Segura' "Preset recomendado para`nqualquer pessoa. Rapido e seguro." 'RECOMENDADO' $script:T.Accent {
+$home.Controls.Add((New-GlowCard 10 180 230 150 'Limpeza Segura' "Recomendado para`nqualquer pessoa." '★ SAFE' $script:T.Accent {
   Apply-PresetIds $script:Presets.safe
   Start-OptimizationRun
 }))
-$home.Controls.Add((New-GlowCard 330 180 300 160 'Modo Turbo / Gamer' "FPS, latencia, Game Bar off,`nGPU cache e Alto Desempenho." 'PERFORMANCE' $script:T.Accent2 {
+$home.Controls.Add((New-GlowCard 255 180 230 150 'Turbo / Gamer' "FPS, Game Bar off,`nGPU e latencia." 'PERF' $script:T.Accent2 {
   Apply-PresetIds $script:Presets.gamer
   Start-OptimizationRun
 }))
-$home.Controls.Add((New-GlowCard 650 180 300 160 'Reparar Internet' "DNS, ARP, TCP tweaks e`nCloudflare 1.1.1.1." 'REDE' $script:T.Warn {
+$home.Controls.Add((New-GlowCard 500 180 230 150 'Reparar Internet' "DNS, ARP, TCP e`nCloudflare 1.1.1.1." 'NET' $script:T.Warn {
   Apply-PresetIds $script:Presets.net
   Start-OptimizationRun
 }))
+$home.Controls.Add((New-GlowCard 745 180 230 150 'Notebook' "Equilibrado, bateria,`nsem Alto Desempenho." 'LAPTOP' ([Drawing.Color]::FromArgb(52, 211, 153)) {
+  Apply-PresetIds $script:Presets.notebook
+  Start-OptimizationRun
+}))
+
+$chkDry = New-Object Windows.Forms.CheckBox
+$chkDry.Text = 'Dry-run (simular, nao apaga)'
+$chkDry.Location = New-Object Drawing.Point(10, 345)
+$chkDry.AutoSize = $true
+$chkDry.ForeColor = $script:T.Warn
+$chkDry.Add_CheckedChanged({ $script:DryRunUi = $chkDry.Checked })
+$home.Controls.Add($chkDry)
 
 $btnScanHome = New-Object Windows.Forms.Button
-$btnScanHome.Text = 'So varrer (nao apaga nada)'
-$btnScanHome.Location = New-Object Drawing.Point(10, 370)
-$btnScanHome.Size = New-Object Drawing.Size(240, 40)
+$btnScanHome.Text = 'Varrer + estimar MB'
+$btnScanHome.Location = New-Object Drawing.Point(10, 380)
+$btnScanHome.Size = New-Object Drawing.Size(200, 40)
 $btnScanHome.FlatStyle = 'Flat'
 $btnScanHome.FlatAppearance.BorderColor = $script:T.Border
 $btnScanHome.BackColor = $script:T.Card
@@ -441,9 +431,9 @@ $btnScanHome.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
 $home.Controls.Add($btnScanHome)
 
 $btnCustom = New-Object Windows.Forms.Button
-$btnCustom.Text = 'Personalizar opcoes  →'
-$btnCustom.Location = New-Object Drawing.Point(270, 370)
-$btnCustom.Size = New-Object Drawing.Size(220, 40)
+$btnCustom.Text = 'Personalizar  →'
+$btnCustom.Location = New-Object Drawing.Point(230, 380)
+$btnCustom.Size = New-Object Drawing.Size(180, 40)
 $btnCustom.FlatStyle = 'Flat'
 $btnCustom.FlatAppearance.BorderSize = 0
 $btnCustom.BackColor = $script:T.CardHi
@@ -453,18 +443,36 @@ $home.Controls.Add($btnCustom)
 
 $btnFullHome = New-Object Windows.Forms.Button
 $btnFullHome.Text = 'Preset completo'
-$btnFullHome.Location = New-Object Drawing.Point(510, 370)
-$btnFullHome.Size = New-Object Drawing.Size(160, 40)
+$btnFullHome.Location = New-Object Drawing.Point(430, 380)
+$btnFullHome.Size = New-Object Drawing.Size(150, 40)
 $btnFullHome.FlatStyle = 'Flat'
 $btnFullHome.FlatAppearance.BorderColor = $script:T.Border
 $btnFullHome.BackColor = $script:T.Card
 $btnFullHome.ForeColor = $script:T.Muted
 $home.Controls.Add($btnFullHome)
 
+$btnTheme = New-Object Windows.Forms.Button
+$btnTheme.Text = 'Tema claro/escuro'
+$btnTheme.Location = New-Object Drawing.Point(600, 380)
+$btnTheme.Size = New-Object Drawing.Size(150, 40)
+$btnTheme.FlatStyle = 'Flat'
+$btnTheme.BackColor = $script:T.Card
+$btnTheme.ForeColor = $script:T.Muted
+$home.Controls.Add($btnTheme)
+
+$btnLang = New-Object Windows.Forms.Button
+$btnLang.Text = 'PT / EN'
+$btnLang.Location = New-Object Drawing.Point(770, 380)
+$btnLang.Size = New-Object Drawing.Size(100, 40)
+$btnLang.FlatStyle = 'Flat'
+$btnLang.BackColor = $script:T.Card
+$btnLang.ForeColor = $script:T.Muted
+$home.Controls.Add($btnLang)
+
 $hint = New-Object Windows.Forms.Label
-$hint.Text = "Dica: se nao souber o que escolher, use Limpeza Segura. E o caminho que um tecnico usaria num PC de amigo."
+$hint.Text = "Dica: Limpeza Segura para a maioria. Notebook em laptop. Dry-run para simular."
 $hint.Location = New-Object Drawing.Point(10, 430)
-$hint.Size = New-Object Drawing.Size(900, 40)
+$hint.Size = New-Object Drawing.Size(900, 24)
 $hint.ForeColor = $script:T.Muted
 $hint.Font = New-Object Drawing.Font('Segoe UI', 9)
 $home.Controls.Add($hint)
@@ -722,11 +730,33 @@ $btnScanHome.Add_Click({
   $homeLog.Clear()
   $homeLog.Visible = $true
   try {
+    $null = Initialize-SessionLog
     Invoke-ScanOnly | Out-Null
+    Write-EstimatesReport (Get-PresetIds 'safe') | Out-Null
+    Complete-SessionLog | Out-Null
     Update-HeroStats
-  } finally {
-    # keep homeLog as scan target; run screen has its own box reassigned in Start-OptimizationRun
+  } catch { Write-Log "$_" 'ERROR' }
+})
+
+$btnTheme.Add_Click({
+  $script:LightTheme = -not $script:LightTheme
+  if ($script:LightTheme) {
+    $form.BackColor = [Drawing.Color]::FromArgb(245, 247, 250)
+    $home.BackColor = [Drawing.Color]::FromArgb(245, 247, 250)
+    $hero.ForeColor = [Drawing.Color]::FromArgb(15, 23, 42)
+    $hint.ForeColor = [Drawing.Color]::FromArgb(71, 85, 105)
+  } else {
+    $form.BackColor = $script:T.Bg
+    $home.BackColor = $script:T.Bg
+    $hero.ForeColor = $script:T.Text
+    $hint.ForeColor = $script:T.Muted
   }
+})
+
+$btnLang.Add_Click({
+  $script:UiLang = if ($script:UiLang -eq 'pt') { 'en' } else { 'pt' }
+  $hero.Text = if ($script:UiLang -eq 'en') { 'Optimize your PC in 1 click' } else { 'Otimize seu PC em 1 clique' }
+  [Windows.Forms.MessageBox]::Show(("Language: {0}" -f $script:UiLang), 'PC Otimizador') | Out-Null
 })
 
 # Wire run log as primary when running — Start-OptimizationRun sets progress on run screen's log

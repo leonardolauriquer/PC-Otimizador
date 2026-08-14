@@ -1,6 +1,9 @@
 ﻿#Requires -Version 5.1
 # Engine compartilhado — limpeza/otimizacao (GUI + CLI)
 $ErrorActionPreference = 'Continue'
+$script:DryRun = $false
+$script:SessionLogFile = $null
+$script:UiLang = 'pt'
 function Test-IsAdmin {
   $id = [Security.Principal.WindowsIdentity]::GetCurrent()
   $p = New-Object Security.Principal.WindowsPrincipal($id)
@@ -42,7 +45,10 @@ function Write-Log {
     'WARN'  { 'Yellow' }
     default { 'DarkCyan' }
   }
-  Write-Host $line -ForegroundColor $color
+  try { Write-Host $line -ForegroundColor $color } catch {}
+  if ($script:SessionLogFile) {
+    try { Add-Content -LiteralPath $script:SessionLogFile -Value $line -Encoding UTF8 } catch {}
+  }
   if ($script:LogBox -and -not $script:LogBox.IsDisposed) {
     try {
       $script:LogBox.AppendText($line + "`r`n")
@@ -510,4 +516,157 @@ function Invoke-ScanOnly {
   }
   Write-Log ('Total estimado: ~{0:N0} MB ({1:N2} GB)' -f $total, ($total / 1024))
   return $total
+}
+
+# ── v4: session log, estimates, presets, schedule, i18n ───────────────────────
+function Get-T {
+  param([string]$Key)
+  $pt = @{ dry='Simulacao (dry-run)'; done='Concluido'; logSaved='Log salvo em'; weeklyOk='Limpeza semanal agendada (domingo 10:00)'; weeklyOff='Agendamento semanal removido'; notebook='Perfil Notebook' }
+  $en = @{ dry='Dry-run simulation'; done='Done'; logSaved='Log saved to'; weeklyOk='Weekly cleanup scheduled (Sunday 10:00)'; weeklyOff='Weekly schedule removed'; notebook='Notebook profile' }
+  $map = if ($script:UiLang -eq 'en') { $en } else { $pt }
+  if ($map.ContainsKey($Key)) { return $map[$Key] } else { return $Key }
+}
+
+function Initialize-SessionLog {
+  $dir = Join-Path $env:USERPROFILE 'Documents\PC-Otimizador-Logs'
+  if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+  $script:SessionLogFile = Join-Path $dir ('sessao-{0}.txt' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+  @(
+    'PC Otimizador Pro — log de sessao'
+    ('Inicio: {0}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
+    ('PC: {0} | Admin: {1} | DryRun: {2}' -f $env:COMPUTERNAME, (Test-IsAdmin), [bool]$script:DryRun)
+    '----------------------------------------'
+  ) | Set-Content -LiteralPath $script:SessionLogFile -Encoding UTF8
+  return $script:SessionLogFile
+}
+
+function Complete-SessionLog {
+  param([string]$Summary = '')
+  if (-not $script:SessionLogFile) { return $null }
+  Add-Content -LiteralPath $script:SessionLogFile -Value '----------------------------------------' -Encoding UTF8
+  if ($Summary) { Add-Content -LiteralPath $script:SessionLogFile -Value $Summary -Encoding UTF8 }
+  Add-Content -LiteralPath $script:SessionLogFile -Value ('Fim: {0}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')) -Encoding UTF8
+  Write-Log ("{0}: {1}" -f (Get-T 'logSaved'), $script:SessionLogFile)
+  return $script:SessionLogFile
+}
+
+function Get-OptionPathMap {
+  @{
+    temp     = @($env:TEMP, "$env:LOCALAPPDATA\Temp", 'C:\Windows\Temp')
+    update   = @('C:\Windows\SoftwareDistribution\Download')
+    delivery = @('C:\Windows\SoftwareDistribution\DeliveryOptimization', "$env:WINDIR\ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache")
+    wer      = @('C:\ProgramData\Microsoft\Windows\WER', "$env:LOCALAPPDATA\Microsoft\Windows\WER", 'C:\Windows\Minidump')
+    logs     = @('C:\Windows\Logs\CBS', 'C:\Windows\Logs\DISM', 'C:\Windows\Logs\WindowsUpdate')
+    prefetch = @('C:\Windows\Prefetch')
+    recent   = @([Environment]::GetFolderPath('Recent'))
+    gpu      = @("$env:LOCALAPPDATA\D3DSCache", "$env:LOCALAPPDATA\NVIDIA\DXCache", "$env:LOCALAPPDATA\NVIDIA\GLCache", "$env:LOCALAPPDATA\AMD\DxCache", "$env:LOCALAPPDATA\Intel\ShaderCache")
+    browser  = @("$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache", "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache", "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\Cache")
+    apps     = @("$env:APPDATA\discord\Cache", "$env:LOCALAPPDATA\Steam\htmlcache", "$env:APPDATA\Microsoft\Teams\Cache", "$env:APPDATA\Spotify\Storage")
+    store    = @("$env:LOCALAPPDATA\Microsoft\Windows\INetCache")
+    upgrade  = @('C:\$Windows.~BT', 'C:\$Windows.~WS', 'C:\Windows.old')
+  }
+}
+
+function Get-OptionEstimateMB {
+  param([string]$Id)
+  $total = 0.0
+  $map = Get-OptionPathMap
+  if ($map.ContainsKey($Id)) {
+    foreach ($p in $map[$Id]) {
+      if ($p -and (Test-Path -LiteralPath $p)) { $total += [double](Get-FolderSizeMB $p) }
+    }
+  }
+  if ($Id -eq 'wer' -and (Test-Path 'C:\Windows\MEMORY.DMP')) {
+    $total += [math]::Round((Get-Item 'C:\Windows\MEMORY.DMP').Length / 1MB, 2)
+  }
+  if ($Id -eq 'thumbs') {
+    Get-ChildItem "$env:LOCALAPPDATA\Microsoft\Windows\Explorer" -Filter 'thumbcache_*.db' -Force -EA SilentlyContinue | ForEach-Object {
+      $total += [math]::Round($_.Length / 1MB, 2)
+    }
+  }
+  return [math]::Round($total, 2)
+}
+
+function Write-EstimatesReport {
+  param([string[]]$Ids)
+  Write-Log '=== ESTIMATIVA (nao apaga nada) ==='
+  $sum = 0.0
+  foreach ($id in $Ids) {
+    $mb = Get-OptionEstimateMB $id
+    $sum += $mb
+    if ($mb -gt 0.05) { Write-Log ('  {0,-14} {1,10:N1} MB' -f $id, $mb) }
+    else { Write-Log ('  {0,-14} (sistema / ~0 MB medivel)' -f $id) }
+  }
+  Write-Log ('TOTAL estimado: ~{0:N0} MB ({1:N2} GB)' -f $sum, ($sum/1024.0))
+  return [math]::Round($sum, 2)
+}
+
+function Get-PresetIds {
+  param([string]$Name)
+  switch ($Name) {
+    'gamer'    { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','gpu','apps','trim','tips','gamebar','gamemode','bgapps','widgets','powerhigh','dns','arp','nettweak','nagle','dnscloud') }
+    'net'      { return @('restore','dns','arp','netbios','nettweak','renewip','dnscloud') }
+    'full'     { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','dismcleanup','browser','gpu','apps','store','trim','storage','tips','visual','bgapps','widgets','searchweb','gamebar','gamemode','dns','arp','netbios','nettweak') }
+    'notebook' { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','trim','storage','tips','powerbal','bgapps','widgets','dns','arp','netbios','nettweak') }
+    default    { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','dismcleanup','trim','storage','tips','dns','arp','netbios','nettweak') }
+  }
+}
+
+function Register-WeeklyCleanup {
+  $task = 'PCOtimizadorProWeekly'
+  $cli = Join-Path $PSScriptRoot 'PC-Otimizador-CLI.ps1'
+  $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$cli`" -Preset safe -AutoYes"
+  $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arg
+  $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At 10:00am
+  $prin = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest
+  Register-ScheduledTask -TaskName $task -Action $action -Trigger $trigger -Principal $prin -Force | Out-Null
+  Write-Log (Get-T 'weeklyOk')
+}
+
+function Unregister-WeeklyCleanup {
+  Unregister-ScheduledTask -TaskName 'PCOtimizadorProWeekly' -Confirm:$false -EA SilentlyContinue
+  Write-Log (Get-T 'weeklyOff')
+}
+
+function Invoke-OptimizationBatch {
+  param(
+    [string[]]$Ids,
+    [hashtable]$Actions,
+    [switch]$DryRun,
+    [switch]$EstimateOnly
+  )
+  $script:DryRun = [bool]$DryRun
+  $null = Initialize-SessionLog
+  $before = Get-SystemSnapshot
+  Write-Log ("Inicio batch | itens={0} | dry={1}" -f $Ids.Count, $script:DryRun)
+  $est = Write-EstimatesReport -Ids $Ids
+  if ($EstimateOnly -or $DryRun) {
+    if ($DryRun) {
+      foreach ($id in $Ids) {
+        $n = if ($Actions.ContainsKey($id)) { $Actions[$id].Nome } else { $id }
+        Write-Log ("[DRY-RUN] Executaria: {0}" -f $n)
+      }
+    }
+    $path = Complete-SessionLog -Summary ("Estimativa total: ~{0} MB" -f $est)
+    return [pscustomobject]@{ FreedMB = 0; DeltaGB = 0; Log = $path; EstimatedMB = $est }
+  }
+  $freed = 0.0
+  $order = @($Ids | Sort-Object { if ($_ -eq 'restore') { 0 } else { 1 } })
+  $i = 0
+  foreach ($id in $order) {
+    $i++
+    if (-not $Actions.ContainsKey($id)) { continue }
+    $o = $Actions[$id]
+    Write-Log (">> [{0}/{1}] {2}" -f $i, $order.Count, $o.Nome)
+    try {
+      $f = & $o.Act
+      if ($f) { $freed += [double]$f }
+    } catch { Write-Log "Erro $id : $_" 'ERROR' }
+  }
+  $after = Get-SystemSnapshot
+  $delta = [math]::Round($after.DiskFree - $before.DiskFree, 2)
+  $sum = ("Freed~{0:N0} MB | Disco +{1} GB" -f $freed, $delta)
+  Write-Log $sum
+  $path = Complete-SessionLog -Summary $sum
+  return [pscustomobject]@{ FreedMB = $freed; DeltaGB = $delta; Log = $path; EstimatedMB = $est }
 }
