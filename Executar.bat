@@ -12,11 +12,27 @@ if %errorlevel% neq 0 (
   exit /b
 )
 
+echo.
+echo   Verificando atualizacoes...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Update.ps1" -Root "%~dp0" -Relaunch "%~f0"
+set "UP=%ERRORLEVEL%"
+if "%UP%"=="10" (
+  echo   Atualizando e reiniciando...
+  exit /b 0
+)
+if "%UP%"=="2" (
+  echo.
+  echo   FALHA na atualizacao obrigatoria. Verifique a internet e tente de novo.
+  echo   Release: https://github.com/leonardolauriquer/PC-Otimizador/releases
+  pause
+  exit /b 2
+)
+
 :MAIN
 cls
 echo.
 echo   ============================================================
-echo        PC OTIMIZADOR PRO  v5.4
+echo        PC OTIMIZADOR PRO  v5.5
 echo   ============================================================
 echo.
 echo   Dica: 1 = mais seguro. 8 = so simula. G = tela com ajuda.

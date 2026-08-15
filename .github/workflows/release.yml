@@ -9,7 +9,7 @@ on:
       version:
         description: 'Version tag (e.g. v5.3.0)'
         required: true
-        default: 'v5.4.0'
+        default: 'v5.5.0'
 
 permissions:
   contents: write
@@ -46,12 +46,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           $must = @(
             'Executar.bat','Engine.ps1','PC-Otimizador-CLI.ps1','PC-Otimizador.exe',
-            'LICENSE','README.md','core\presets.json'
+            'Update.ps1','VERSION','LICENSE','README.md','core\presets.json'
           )
           foreach ($f in $must) {
             if (-not (Test-Path $f)) { throw "Missing required release file: $f" }
           }
-          Copy-Item Executar.bat,Engine.ps1,PC-Otimizador-CLI.ps1,PC-Otimizador.ps1,PC-Otimizador.exe,LEIA-ME.txt,LICENSE,README.md $out
+          Copy-Item Executar.bat,Engine.ps1,PC-Otimizador-CLI.ps1,PC-Otimizador.ps1,PC-Otimizador.exe,Update.ps1,VERSION,LEIA-ME.txt,LICENSE,README.md $out
           foreach ($dir in 'linux','macos','android','ios','core') {
             if (Test-Path $dir) { Copy-Item -Recurse $dir "$out\$dir" }
           }

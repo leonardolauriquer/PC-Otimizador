@@ -298,8 +298,88 @@ namespace PCOtimizador
             ShowPage("inicio");
             HighlightNav("inicio");
 
-            Shown += (s, e) => RefreshHealthAsync();
-            LogLine("Interface alinhada ao dashboard do README. Passe o mouse nos cards.");
+            Shown += (s, e) =>
+            {
+                CheckMandatoryUpdate();
+                if (IsDisposed) return;
+                RefreshHealthAsync();
+            };
+            LogLine("Verifica atualizacao no GitHub ao abrir. Passe o mouse nos cards.");
+        }
+
+        void CheckMandatoryUpdate()
+        {
+            var upd = Path.Combine(_root, "Update.ps1");
+            if (!File.Exists(upd))
+            {
+                LogLine("Update.ps1 ausente — sem auto-update nesta pasta.");
+                return;
+            }
+
+            _taskLabel.Text = "Verificando atualizacoes...";
+            _statusLabel.Text = "Consultando GitHub Releases (obrigatorio)...";
+            Application.DoEvents();
+
+            try
+            {
+                string relaunch = Path.Combine(_root, "PC-Otimizador.exe");
+                if (!File.Exists(relaunch))
+                    relaunch = Path.Combine(_root, "Executar.bat");
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"),
+                    Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + upd + "\" -Root \"" + _root + "\" -Relaunch \"" + relaunch + "\"",
+                    WorkingDirectory = _root,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = Encoding.UTF8
+                };
+
+                using (var p = Process.Start(psi))
+                {
+                    string line;
+                    while ((line = p.StandardOutput.ReadLine()) != null)
+                    {
+                        if (line.StartsWith("##UPDATE##|"))
+                            LogLine(line.Substring("##UPDATE##|".Length));
+                        else if (!string.IsNullOrWhiteSpace(line))
+                            LogLine(line.Trim());
+                        Application.DoEvents();
+                    }
+                    p.WaitForExit(300000);
+                    int code = p.ExitCode;
+                    if (code == 10)
+                    {
+                        MessageBox.Show(
+                            "Nova versao encontrada.\nO programa vai fechar e atualizar sozinho.\nDepois reabre automaticamente.",
+                            "Atualizacao obrigatoria",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Information);
+                        Application.Exit();
+                        return;
+                    }
+                    if (code == 2)
+                    {
+                        MessageBox.Show(
+                            "Falha na atualizacao obrigatoria.\nVerifique a internet e tente de novo.\n\n" +
+                            "https://github.com/leonardolauriquer/PC-Otimizador/releases",
+                            "Atualizacao",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Error);
+                        Application.Exit();
+                        return;
+                    }
+                    _taskLabel.Text = "Pronto — escolha um perfil acima";
+                }
+            }
+            catch (Exception ex)
+            {
+                LogLine("Update check: " + ex.Message);
+                _taskLabel.Text = "Pronto (update offline?)";
+            }
         }
 
         void BuildSidebar()

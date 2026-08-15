@@ -91,7 +91,7 @@ function Write-Banner {
   $s = Get-SystemSnapshot
   Write-Host ''
   Write-Host '  ============================================================' -ForegroundColor DarkCyan
-  Write-Host '       PC OTIMIZADOR PRO  ·  v5.4' -ForegroundColor Cyan
+  Write-Host '       PC OTIMIZADOR PRO  ·  v5.5' -ForegroundColor Cyan
   Write-Host '  ============================================================' -ForegroundColor DarkCyan
   Write-Host ("  {0} | {1} | Disco {2} GB livres ({3}% usado)" -f $s.PC, $s.OS, $s.DiskFree, $s.DiskUsed) -ForegroundColor DarkGray
   Write-Host '  Nao apaga Documentos/Fotos/Downloads. Digite ? para ajuda.' -ForegroundColor DarkGreen

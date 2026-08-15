@@ -1,12 +1,11 @@
-PC OTIMIZADOR PRO v5.4
+PC OTIMIZADOR PRO v5.5
 ======================
-Executar.bat (Admin)  ou  G = GUI dashboard (igual a foto do README)
+Executar.bat (Admin)  ou  G = GUI dashboard
+
+Ao abrir: verifica a ultima versao no GitHub e ATUALIZA SOZINHO
+(obrigatorio). Precisa de internet na primeira abertura apos um release.
 
 1 Limpeza Segura ★   |  8 Dry-run  |  ? Ajuda  |  G Interface
 
-GUI: sidebar INÍCIO/LIMPEZA/... · progresso % · Health · antes/depois
-SAFE vs RISK · tooltips · Abrir logs
-
 Nao apaga Documentos/Fotos/Downloads/Musica/OneDrive.
 Logs: Documentos\PC-Otimizador-Logs
-Release: verifique SHA256SUMS.txt
