@@ -45,7 +45,7 @@ Detalhes: [`core/README.md`](core/README.md) · [`core/SECURITY.md`](core/SECURI
 1. **[Download ZIP](https://github.com/leonardolauriquer/PC-Otimizador/archive/refs/heads/main.zip)** (ou Releases)
 2. Extraia → **`Executar.bat`** → UAC
 3. Digite **`1`** (Limpeza Segura) → **`E`**  
-   Ou **`D`** = dry-run · **`H`** = Health Score
+   Ou **`8`** = dry-run no menu `.bat` · **`H`** = Health Score
 
 > Anti-AV: use **`Executar.bat`**. O `.exe` é GUI C# nativa (sem ps2exe).
 
@@ -94,8 +94,8 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 | **core/presets.json** | Fonte da verdade (Windows + Bash via `load_preset.py`) |
 | **Whitelist boundary** | Não confunde `Documents` com `DocumentsBackup` |
 | **Alto risco** | DNS/energia/IP exigem confirmação (`-AllowHighRisk` após UI) |
-| **GUI** | Risk badges, DPI-aware, tema claro completo, cancel+kill |
-| **Release** | Testes no CI + `SHA256SUMS.txt` |
+| **GUI** | Risk badges, DPI parcial, tema escuro (dashboard) |
+| **Release** | Testes no CI + `SHA256SUMS.txt` + assert de arquivos |
 | **Progresso ao vivo** | Barra + etapa na GUI C# (`##PROGRESS##`) |
 | **Health Score** | 0–100 (disco, RAM, lixo) |
 | **Linux / macOS / Termux** | Adapters Bash alinhados ao core |

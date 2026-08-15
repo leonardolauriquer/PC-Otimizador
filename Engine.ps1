@@ -8,6 +8,7 @@ $script:CancelRequested = $false
 $script:CancelFile = Join-Path $env:TEMP 'pc-otimizador-cancel.flag'
 $script:Whitelist = New-Object System.Collections.Generic.List[string]
 $script:ProgressCallback = $null
+$script:LogBox = $null
 function Test-IsAdmin {
   $id = [Security.Principal.WindowsIdentity]::GetCurrent()
   $p = New-Object Security.Principal.WindowsPrincipal($id)
@@ -281,12 +282,14 @@ function Invoke-CleanStoreCache {
 }
 
 function Invoke-CleanMgr {
-  Write-Log 'Limpeza de Disco do Windows...'
+  Write-Log 'Limpeza de Disco do Windows (sem Windows.old)...'
   $base = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches'
+  # NUNCA incluir Previous Installations aqui — isso apaga Windows.old.
+  # Update Cleanup / Previous Installations ficam no perfil advanced (upgrade).
   foreach ($k in @(
     'Temporary Files', 'Temporary Setup Files', 'Thumbnail Cache', 'Recycle Bin',
-    'Delivery Optimization Files', 'Windows Error Reporting Files', 'Update Cleanup',
-    'Downloaded Program Files', 'Internet Cache Files', 'Previous Installations',
+    'Delivery Optimization Files', 'Windows Error Reporting Files',
+    'Downloaded Program Files', 'Internet Cache Files',
     'System error memory dump files', 'System error minidump files'
   )) {
     $path = Join-Path $base $k
@@ -580,10 +583,16 @@ function Request-Cancel {
   Set-Content -LiteralPath $script:CancelFile -Value '1' -Encoding ASCII -Force
 }
 
-function Get-WhitelistPath {
-  $dir = Join-Path $env:USERPROFILE 'Documents\PC-Otimizador-Logs'
+function Get-LogsDirectory {
+  $docs = [Environment]::GetFolderPath('MyDocuments')
+  if (-not $docs) { $docs = Join-Path $env:USERPROFILE 'Documents' }
+  $dir = Join-Path $docs 'PC-Otimizador-Logs'
   if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-  Join-Path $dir 'whitelist.txt'
+  return $dir
+}
+
+function Get-WhitelistPath {
+  Join-Path (Get-LogsDirectory) 'whitelist.txt'
 }
 
 function Import-Whitelist {
@@ -816,8 +825,7 @@ function Invoke-OptimizationBatch {
 }
 
 function Initialize-SessionLog {
-  $dir = Join-Path $env:USERPROFILE 'Documents\PC-Otimizador-Logs'
-  if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+  $dir = Get-LogsDirectory
   $script:SessionLogFile = Join-Path $dir ('sessao-{0}.txt' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
   @(
     'PC Otimizador Pro — log de sessao'
@@ -919,9 +927,9 @@ function Get-PresetIds {
   switch ($key) {
     'gamer'    { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','gpu','apps','trim','tips','gamebar','gamemode','bgapps','widgets','powerhigh','dns','arp','nettweak','nagle','dnscloud') }
     'net'      { return @('restore','dns','arp','netbios','nettweak','renewip','dnscloud') }
-    'full'     { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','dismcleanup','browser','gpu','apps','store','trim','storage','tips','visual','bgapps','widgets','searchweb','gamebar','gamemode','dns','arp','netbios','nettweak') }
-    'notebook' { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','trim','storage','tips','powerbal','bgapps','widgets','dns','arp','netbios','nettweak') }
-    default    { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','dismcleanup','trim','storage','tips','dns','arp','netbios','nettweak') }
+    'full'     { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','dismcleanup','browser','gpu','apps','store','trim','storage','tips','visual','bgapps','widgets','searchweb','gamebar','gamemode','dns','arp','netbios') }
+    'notebook' { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','trim','storage','tips','powerbal','bgapps','widgets','dns','arp','netbios') }
+    default    { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','dismcleanup','trim','storage','tips','dns','arp','netbios') }
   }
 }
 

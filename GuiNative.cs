@@ -99,6 +99,7 @@ namespace PCOtimizador
 
         Process _proc;
         bool _running;
+        bool _cancelRequested;
         string _activeNav = "inicio";
         int _healthScore = 0;
         string _diskFree = "—";
@@ -666,10 +667,12 @@ namespace PCOtimizador
 
         void CancelRun()
         {
+            _cancelRequested = true;
             try { File.WriteAllText(_cancelFile, "1"); } catch { }
-            try { if (_proc != null && !_proc.HasExited) _proc.Kill(); } catch { }
-            _taskLabel.Text = "Cancelando...";
-            LogLine("Cancelamento solicitado.");
+            // Cooperativo: NÃO matar o processo (senão finally do Engine não reinicia BITS/WU/Explorer).
+            _taskLabel.Text = "Cancelando (aguardando etapa atual)...";
+            _pctLabel.ForeColor = Warn;
+            LogLine("Cancelamento cooperativo solicitado (sem Kill).");
         }
 
         void RefreshHealthAsync()
@@ -703,10 +706,11 @@ namespace PCOtimizador
                                 {
                                     int.TryParse(parts[0], out _healthScore);
                                     string grade = parts.Length > 1 ? parts[1] : "";
-                                    BeginInvoke(new Action(() =>
-                                    {
-                                        _healthLabel.Text = "Health\n" + _healthScore + "/100" + (grade != "" ? "  (" + grade + ")" : "");
-                                    }));
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (IsDisposed || !IsHandleCreated) return;
+                        _healthLabel.Text = "Health\n" + _healthScore + "/100" + (grade != "" ? "  (" + grade + ")" : "");
+                    }));
                                 }
                             }
                         }
@@ -758,16 +762,23 @@ namespace PCOtimizador
         {
             if (_running) return;
             var cli = Path.Combine(_root, "PC-Otimizador-CLI.ps1");
-            if (!File.Exists(cli))
+            var engine = Path.Combine(_root, "Engine.ps1");
+            var presets = Path.Combine(_root, "core", "presets.json");
+            if (!File.Exists(cli) || !File.Exists(engine))
             {
                 MessageBox.Show(
-                    "Falta PC-Otimizador-CLI.ps1 na pasta do programa.\n\nExtraia o ZIP completo da Release.",
+                    "Faltam arquivos obrigatórios na pasta do programa:\n" +
+                    "PC-Otimizador-CLI.ps1 e Engine.ps1\n\nExtraia o ZIP completo da Release.",
                     "Arquivo faltando", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
+            if (!File.Exists(presets))
+                LogLine("Aviso: core/presets.json ausente — usando fallback do Engine.");
+
             try { if (File.Exists(_cancelFile)) File.Delete(_cancelFile); } catch { }
 
             _running = true;
+            _cancelRequested = false;
             _btnCancel.Enabled = true;
             _bar.Value = 0;
             _pctLabel.Text = "0%";
@@ -801,11 +812,23 @@ namespace PCOtimizador
                     _proc.WaitForExit();
                     BeginInvoke(new Action(() =>
                     {
+                        if (IsDisposed || !IsHandleCreated) return;
                         _running = false;
                         _btnCancel.Enabled = false;
-                        if (_bar.Value < 100) _bar.Value = 100;
-                        _pctLabel.Text = "100%";
-                        _taskLabel.Text = "Concluído";
+                        bool cancelled = _cancelRequested;
+                        if (cancelled)
+                        {
+                            _taskLabel.Text = "Cancelado";
+                            _pctLabel.ForeColor = Warn;
+                            LogLine("Execução cancelada pelo usuário.");
+                        }
+                        else
+                        {
+                            if (_bar.Value < 100) _bar.Value = 100;
+                            _pctLabel.Text = "100%";
+                            _taskLabel.Text = "Concluído";
+                            _pctLabel.ForeColor = Accent;
+                        }
                         HighlightNav("inicio");
                     }));
                 }
@@ -886,7 +909,14 @@ namespace PCOtimizador
             }
             if (line.StartsWith("##DONE##|"))
             {
-                LogLine("Status: " + line.Substring(9));
+                string status = line.Substring(9);
+                LogLine("Status: " + status);
+                if (status.IndexOf("CANCEL", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    _cancelRequested = true;
+                    _taskLabel.Text = "Cancelado";
+                    _pctLabel.ForeColor = Warn;
+                }
                 return;
             }
             LogLine(line);

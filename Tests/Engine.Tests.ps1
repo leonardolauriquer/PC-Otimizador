@@ -57,6 +57,27 @@ $safe = @(Get-PresetIds 'safe')
 Assert-True ($safe.Count -gt 5) 'safe preset from core/json'
 Assert-True ($safe -notcontains 'powerhigh') 'safe no high perf'
 Assert-True ($safe -notcontains 'dnscloud') 'safe no dnscloud'
+Assert-True ($safe -notcontains 'nettweak') 'safe no nettweak'
+Assert-True ($safe -contains 'cleanmgr') 'safe has cleanmgr'
+
+# StrictMode parity with CLI (would have caught LogBox P0)
+$strictFailed = $false
+try {
+  $job = Start-Job -ScriptBlock {
+    param($root)
+    Set-Location $root
+    Set-StrictMode -Version Latest
+    . (Join-Path $root 'Engine.ps1')
+    Write-Log 'strict ok'
+    $actions = @{ temp = @{ Nome = 'Temp'; Act = { return 0 } } }
+    $null = Invoke-OptimizationBatch -Ids @('temp') -Actions $actions -DryRun
+    'OK'
+  } -ArgumentList $root
+  $out = Wait-Job $job -Timeout 120 | Receive-Job
+  if ($job.State -ne 'Completed' -or ($out -notcontains 'OK' -and $out -ne 'OK')) { $strictFailed = $true }
+  Remove-Job $job -Force -EA SilentlyContinue
+} catch { $strictFailed = $true }
+Assert-True (-not $strictFailed) 'StrictMode Write-Log + dry batch'
 $nb = @(Get-PresetIds 'notebook')
 Assert-True ($nb -contains 'powerbal') 'notebook balanced'
 $gamer = @(Get-PresetIds 'gamer')

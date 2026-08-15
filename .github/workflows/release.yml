@@ -44,10 +44,20 @@ jobs:
         run: |
           $out = 'PC-Otimizador-Release'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Copy-Item Executar.bat,Engine.ps1,PC-Otimizador-CLI.ps1,PC-Otimizador.ps1,PC-Otimizador.exe,LEIA-ME.txt,LICENSE,README.md $out -ErrorAction SilentlyContinue
-          foreach ($dir in 'linux','macos','android','ios','core') {
-            if (Test-Path $dir) { Copy-Item -Recurse $dir "$out\$dir" -ErrorAction SilentlyContinue }
+          $must = @(
+            'Executar.bat','Engine.ps1','PC-Otimizador-CLI.ps1','PC-Otimizador.exe',
+            'LICENSE','README.md','core\presets.json'
+          )
+          foreach ($f in $must) {
+            if (-not (Test-Path $f)) { throw "Missing required release file: $f" }
           }
+          Copy-Item Executar.bat,Engine.ps1,PC-Otimizador-CLI.ps1,PC-Otimizador.ps1,PC-Otimizador.exe,LEIA-ME.txt,LICENSE,README.md $out
+          foreach ($dir in 'linux','macos','android','ios','core') {
+            if (Test-Path $dir) { Copy-Item -Recurse $dir "$out\$dir" }
+          }
+          if (-not (Test-Path "$out\Engine.ps1")) { throw 'Pack failed: Engine.ps1' }
+          if (-not (Test-Path "$out\PC-Otimizador.exe")) { throw 'Pack failed: exe' }
+          if (-not (Test-Path "$out\core\presets.json")) { throw 'Pack failed: presets' }
           Compress-Archive -Path "$out\*" -DestinationPath 'PC-Otimizador-Windows.zip' -Force
           Get-FileHash 'PC-Otimizador-Windows.zip' -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash.ToLower())  PC-Otimizador-Windows.zip" } |

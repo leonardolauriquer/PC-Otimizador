@@ -1,6 +1,6 @@
 {
   "name": "PC Otimizador Pro",
-  "version": "5.3",
+  "version": "5.4.1",
   "policy": {
     "never_delete": [
       "Documents", "Documentos", "Pictures", "Fotos", "Imagens",
@@ -18,11 +18,11 @@
     "bloat": "high"
   },
   "windows": {
-    "safe": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "cleanmgr", "dismcleanup", "trim", "storage", "tips", "dns", "arp", "netbios", "nettweak"],
+    "safe": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "cleanmgr", "dismcleanup", "trim", "storage", "tips", "dns", "arp", "netbios"],
     "gamer": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "gpu", "apps", "trim", "tips", "gamebar", "gamemode", "bgapps", "widgets", "powerhigh", "dns", "arp", "nettweak", "nagle", "dnscloud"],
     "net": ["restore", "dns", "arp", "netbios", "nettweak", "renewip", "dnscloud"],
-    "full": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "cleanmgr", "dismcleanup", "browser", "gpu", "apps", "store", "trim", "storage", "tips", "visual", "bgapps", "widgets", "searchweb", "gamebar", "gamemode", "dns", "arp", "netbios", "nettweak"],
-    "notebook": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "cleanmgr", "trim", "storage", "tips", "powerbal", "bgapps", "widgets", "dns", "arp", "netbios", "nettweak"]
+    "full": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "cleanmgr", "dismcleanup", "browser", "gpu", "apps", "store", "trim", "storage", "tips", "visual", "bgapps", "widgets", "searchweb", "gamebar", "gamemode", "dns", "arp", "netbios"],
+    "notebook": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "cleanmgr", "trim", "storage", "tips", "powerbal", "bgapps", "widgets", "dns", "arp", "netbios"]
   },
   "linux": {
     "safe": ["temp", "trash", "cache", "journal", "pkg", "dns"],
