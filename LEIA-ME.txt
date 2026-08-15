@@ -1,13 +1,12 @@
-PC OTIMIZADOR PRO v5.3
+PC OTIMIZADOR PRO v5.4
 ======================
-Executar.bat (Admin)
+Executar.bat (Admin)  ou  G = GUI dashboard (igual a foto do README)
 
-1 Limpeza Segura ★   |  8 Dry-run (simula)  |  ? Ajuda
-G Interface grafica (tooltips + botao Ajuda + Abrir logs)
+1 Limpeza Segura ★   |  8 Dry-run  |  ? Ajuda  |  G Interface
 
-Fluxo sugerido: Dry-run -> Limpeza Segura
-SAFE = sem DNS/energia. RISK = pede confirmacao extra.
+GUI: sidebar INÍCIO/LIMPEZA/... · progresso % · Health · antes/depois
+SAFE vs RISK · tooltips · Abrir logs
 
 Nao apaga Documentos/Fotos/Downloads/Musica/OneDrive.
 Logs: Documentos\PC-Otimizador-Logs
-Releases: verifique SHA256SUMS.txt
+Release: verifique SHA256SUMS.txt

@@ -16,7 +16,7 @@ if %errorlevel% neq 0 (
 cls
 echo.
 echo   ============================================================
-echo        PC OTIMIZADOR PRO  v5.3
+echo        PC OTIMIZADOR PRO  v5.4
 echo   ============================================================
 echo.
 echo   Dica: 1 = mais seguro. 8 = so simula. G = tela com ajuda.

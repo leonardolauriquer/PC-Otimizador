@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -25,357 +26,599 @@ namespace PCOtimizador
         }
     }
 
+    sealed class RoundPanel : Panel
+    {
+        public int Radius = 12;
+        public Color BorderColor = Color.FromArgb(40, 60, 90);
+        public int BorderWidth = 1;
+
+        public RoundPanel()
+        {
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            var rect = new Rectangle(0, 0, Width - 1, Height - 1);
+            using (var path = RoundRect(rect, Radius))
+            using (var brush = new SolidBrush(BackColor))
+            using (var pen = new Pen(BorderColor, BorderWidth))
+            {
+                e.Graphics.FillPath(brush, path);
+                e.Graphics.DrawPath(pen, path);
+            }
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            using (var path = RoundRect(new Rectangle(0, 0, Width, Height), Radius))
+            {
+                Region = new Region(path);
+            }
+        }
+
+        static GraphicsPath RoundRect(Rectangle r, int radius)
+        {
+            int d = radius * 2;
+            var p = new GraphicsPath();
+            if (radius <= 0) { p.AddRectangle(r); return p; }
+            p.AddArc(r.X, r.Y, d, d, 180, 90);
+            p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+            p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+            p.CloseFigure();
+            return p;
+        }
+    }
+
     public class MainForm : Form
     {
         readonly string _root;
         readonly string _cancelFile;
         readonly string _logsDir;
-        readonly TextBox _log;
-        readonly Label _status;
-        readonly Label _task;
-        readonly Label _result;
-        readonly Label _title;
-        readonly Label _tipBanner;
-        readonly CheckBox _dry;
-        readonly ProgressBar _bar;
-        readonly Button _btnCancel;
         readonly ToolTip _tips;
-        readonly List<Panel> _cards = new List<Panel>();
-        readonly List<Button> _actionBtns = new List<Button>();
+
+        Panel _sidebar;
+        Panel _content;
+        Label _pctLabel;
+        Label _taskLabel;
+        Label _statusLabel;
+        Label _beforeAfter;
+        Label _healthLabel;
+        Label _heroSub;
+        Label _protectDot;
+        ProgressBar _bar;
+        CheckBox _dry;
+        Button _btnCancel;
+        TextBox _log;
+        readonly List<Button> _navBtns = new List<Button>();
+        readonly Dictionary<string, Panel> _pages = new Dictionary<string, Panel>(StringComparer.OrdinalIgnoreCase);
+
         Process _proc;
-        bool _light;
         bool _running;
-        int _tipIndex;
+        string _activeNav = "inicio";
+        int _healthScore = 0;
+        string _diskFree = "—";
+        string _diskTot = "—";
 
-        static readonly Color DarkBg = Color.FromArgb(6, 8, 14);
-        static readonly Color DarkCard = Color.FromArgb(16, 22, 36);
-        static readonly Color DarkMuted = Color.FromArgb(100, 116, 139);
+        static readonly Color Bg = Color.FromArgb(6, 8, 14);
+        static readonly Color PanelBg = Color.FromArgb(10, 14, 22);
+        static readonly Color Card = Color.FromArgb(16, 22, 36);
+        static readonly Color CardHi = Color.FromArgb(22, 32, 52);
+        static readonly Color Border = Color.FromArgb(40, 60, 90);
         static readonly Color Accent = Color.FromArgb(0, 229, 192);
-        static readonly Color LightBg = Color.FromArgb(245, 247, 250);
-        static readonly Color LightCard = Color.FromArgb(255, 255, 255);
-        static readonly Color LightMuted = Color.FromArgb(71, 85, 105);
-
-        static readonly string[] Tips = new[]
-        {
-            "Dica: marque Dry-run para ver o que seria limpo sem apagar nada.",
-            "Dica: Limpeza Segura (SAFE) é o ideal na primeira vez.",
-            "Dica: Documentos, Fotos, Downloads e OneDrive nunca são apagados.",
-            "Dica: Gamer/Internet (RISK) podem mudar DNS ou plano de energia.",
-            "Dica: Health Score 0–100 resume disco, RAM e lixo recuperável.",
-            "Dica: Agendar cria limpeza segura todo domingo às 10h.",
-            "Dica: Whitelist protege pastas extras que você indicar.",
-            "Dica: logs ficam em Documentos\\PC-Otimizador-Logs."
-        };
+        static readonly Color Accent2 = Color.FromArgb(56, 189, 248);
+        static readonly Color Warn = Color.FromArgb(251, 191, 36);
+        static readonly Color Danger = Color.FromArgb(248, 113, 113);
+        static readonly Color TextMain = Color.FromArgb(241, 245, 249);
+        static readonly Color Muted = Color.FromArgb(100, 116, 139);
+        static readonly Color Ok = Color.FromArgb(52, 211, 153);
 
         public MainForm()
         {
             _root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\', '/');
             _cancelFile = Path.Combine(Path.GetTempPath(), "pc-otimizador-cancel.flag");
-            _logsDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                "PC-Otimizador-Logs");
+            _logsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PC-Otimizador-Logs");
 
             _tips = new ToolTip
             {
-                AutoPopDelay = 15000,
-                InitialDelay = 350,
+                AutoPopDelay = 14000,
+                InitialDelay = 400,
                 ReshowDelay = 200,
                 ShowAlways = true,
-                IsBalloon = true,
-                ToolTipTitle = "PC Otimizador Pro",
-                ToolTipIcon = ToolTipIcon.Info
+                IsBalloon = false,
+                ToolTipTitle = "PC Otimizador Pro"
             };
 
-            Text = "PC Otimizador Pro v5.3";
-            Size = new Size(1000, 780);
-            MinimumSize = new Size(920, 680);
+            Text = "PC Otimizador Pro";
+            Size = new Size(1120, 740);
+            MinimumSize = new Size(980, 680);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = true;
-            BackColor = DarkBg;
-            ForeColor = Color.FromArgb(241, 245, 249);
+            BackColor = Bg;
+            ForeColor = TextMain;
             Font = new Font("Segoe UI", 9.5f);
             AutoScaleMode = AutoScaleMode.Dpi;
+            DoubleBuffered = true;
 
-            _title = new Label
+            _sidebar = new Panel
             {
-                Text = "◈  PC OTIMIZADOR PRO",
-                Font = new Font("Segoe UI Semibold", 16f),
+                Dock = DockStyle.Left,
+                Width = 220,
+                BackColor = PanelBg,
+                Padding = new Padding(0)
+            };
+            Controls.Add(_sidebar);
+            BuildSidebar();
+
+            _content = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Bg,
+                Padding = new Padding(28, 20, 28, 20)
+            };
+            Controls.Add(_content);
+
+            // Shared chrome (always visible under pages)
+            var header = new Label
+            {
+                Text = "PC  OTIMIZADOR  PRO",
+                Font = new Font("Segoe UI Semibold", 18f),
                 ForeColor = Accent,
-                Location = new Point(24, 14),
+                Location = new Point(28, 18),
                 AutoSize = true
             };
-            Controls.Add(_title);
-            Tip(_title, "Limpeza e otimização segura para Windows.\nNão apaga seus arquivos pessoais.");
+            _content.Controls.Add(header);
 
-            var btnHelp = MakeBtn(820, 12, 70, 32, "Ajuda", Color.FromArgb(30, 41, 59));
-            btnHelp.Click += (s, e) => ShowHelp();
-            Controls.Add(btnHelp);
-            _actionBtns.Add(btnHelp);
-            Tip(btnHelp, "Abre o guia rápido: o que cada botão faz, o que é SAFE/RISK e dicas de segurança.");
-
-            var btnTip = MakeBtn(900, 12, 60, 32, "Dica", Color.FromArgb(30, 64, 55));
-            btnTip.Click += (s, e) => NextTip(true);
-            Controls.Add(btnTip);
-            _actionBtns.Add(btnTip);
-            Tip(btnTip, "Mostra a próxima dica útil no painel amarelo.");
-
-            _status = new Label
+            _heroSub = new Label
             {
-                Text = "Passe o mouse nos botões para ver explicações. Comece por Limpeza Segura ★",
-                Location = new Point(26, 50),
-                Size = new Size(940, 22),
-                ForeColor = DarkMuted
+                Text = "Dashboard · Limpeza segura · Nunca apaga Documentos/Fotos/Downloads",
+                Location = new Point(30, 54),
+                Size = new Size(700, 22),
+                ForeColor = Muted
             };
-            Controls.Add(_status);
-            Tip(_status, "Barra de status: mostra o que está acontecendo agora.");
-
-            _tipBanner = new Label
-            {
-                Text = "💡  " + Tips[0],
-                Location = new Point(24, 74),
-                Size = new Size(940, 28),
-                BackColor = Color.FromArgb(30, 41, 20),
-                ForeColor = Color.FromArgb(253, 224, 71),
-                Padding = new Padding(10, 5, 10, 5),
-                Font = new Font("Segoe UI", 9f),
-                Cursor = Cursors.Hand
-            };
-            _tipBanner.Click += (s, e) => NextTip(true);
-            Controls.Add(_tipBanner);
-            Tip(_tipBanner, "Clique para ver outra dica. Estas mensagens ajudam a usar o app com segurança.");
+            _content.Controls.Add(_heroSub);
 
             _dry = new CheckBox
             {
-                Text = "Dry-run (simular — não apaga nada)",
-                Location = new Point(26, 110),
+                Text = "Dry-run (simular)",
+                Location = new Point(760, 22),
                 AutoSize = true,
-                ForeColor = Color.FromArgb(251, 191, 36)
+                ForeColor = Warn,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
-            Controls.Add(_dry);
-            Tip(_dry,
-                "Modo simulação.\n\n" +
-                "• Lista o que seria limpo e estima o espaço\n" +
-                "• Não remove arquivos\n" +
-                "• Ideal antes da primeira limpeza real");
+            _content.Controls.Add(_dry);
+            Tip(_dry, "Simula a limpeza sem apagar nada. Ideal na primeira vez.");
 
-            int y = 145;
-            _cards.Add(MakeCard(24, y, 220, 118,
-                "Limpeza Segura", "SAFE ★", "Recomendado p/ iniciantes",
-                Color.FromArgb(0, 229, 192),
-                () => RunPreset("safe", false),
-                "Limpeza Segura (recomendado)\n\n" +
-                "Remove: temporários, lixeira, caches regeneráveis, logs, TRIM.\n" +
-                "NÃO muda: DNS, IP, plano de energia.\n" +
-                "NÃO apaga: Documentos, Fotos, Downloads, Desktop, OneDrive.\n\n" +
-                "Use esta opção na maioria das vezes."));
+            // Progress block
+            var progressBox = MakeCard(28, 390, 820, 110);
+            progressBox.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+            _content.Controls.Add(progressBox);
 
-            _cards.Add(MakeCard(256, y, 220, 118,
-                "Turbo / Gamer", "RISK", "DNS + alto desempenho",
-                Color.FromArgb(248, 113, 113),
-                () => RunPreset("gamer", true),
-                "Turbo / Gamer (atenção)\n\n" +
-                "Além da limpeza, pode:\n" +
-                "• Ativar plano Alto Desempenho (gasta mais bateria)\n" +
-                "• Trocar DNS para Cloudflare 1.1.1.1\n" +
-                "• Ajustes de rede (Nagle)\n\n" +
-                "Peça confirmação extra. Em notebook, prefira Notebook."));
-
-            _cards.Add(MakeCard(488, y, 220, 118,
-                "Internet", "RISK", "DNS Cloudflare + IP",
-                Color.FromArgb(251, 191, 36),
-                () => RunPreset("net", true),
-                "Reparar Internet (atenção)\n\n" +
-                "• Flush DNS/ARP\n" +
-                "• Renova o endereço IP (rede pode cair por segundos)\n" +
-                "• Pode definir DNS Cloudflare\n\n" +
-                "Útil se a internet está lenta ou com DNS quebrado.\n" +
-                "Se sua empresa força DNS corporativo, não use."));
-
-            _cards.Add(MakeCard(720, y, 220, 118,
-                "Notebook", "SAFE", "Equilibrado p/ bateria",
-                Color.FromArgb(52, 211, 153),
-                () => RunPreset("notebook", false),
-                "Notebook (bateria)\n\n" +
-                "Limpeza segura + plano de energia Equilibrado.\n" +
-                "Evita Alto Desempenho (que drena a bateria).\n" +
-                "Bom para uso diário em laptop."));
-
-            foreach (var c in _cards) Controls.Add(c);
-
-            y = 280;
-            AddActionBtn(24, y, 140, "Health Score", () => RunCli("-Mode health -AutoYes"),
-                "Nota de saúde do PC (0–100).\n\nConsidera disco cheio, RAM e lixo recuperável.\nNão altera o sistema — só mede.");
-            AddActionBtn(176, y, 120, "Estimar", () => RunCli("-Mode scan -AutoYes"),
-                "Varre e estima quantos MB/GB a Limpeza Segura liberaria.\nNão apaga nada.");
-            AddActionBtn(308, y, 120, "Completo", () => RunPreset("full", false),
-                "Preset Completo: limpeza ampla + caches de apps/navegador.\nNão inclui DNS Cloudflare nem Alto Desempenho.\nDemora mais que a Limpeza Segura.");
-            AddActionBtn(440, y, 120, "Agendar", () =>
+            _pctLabel = new Label
             {
-                if (MessageBox.Show(
-                    "Criar tarefa semanal?\n\n" +
-                    "• Todo domingo às 10:00\n" +
-                    "• Só Limpeza Segura (sem DNS/energia)\n" +
-                    "• Roda em segundo plano com admin\n\nContinuar?",
-                    "Agendar limpeza", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-                    return;
-                RunCli("-Mode schedule -AutoYes");
-            },
-                "Agenda limpeza segura automática (domingo 10h).\nNão agenda perfis RISK.");
-            AddActionBtn(572, y, 120, "Whitelist", () => RunCli("-Mode whitelist -AutoYes"),
-                "Lista pastas que o otimizador NUNCA apaga.\n\nJá inclui Documentos, Fotos, Vídeos, Música, Desktop, Downloads, OneDrive.\nVocê pode acrescentar outras pastas.");
-            AddActionBtn(704, y, 110, "Abrir logs", OpenLogsFolder,
-                "Abre a pasta Documentos\\PC-Otimizador-Logs com o histórico de cada sessão.");
-            AddActionBtn(826, y, 100, "Tema", ToggleTheme,
-                "Alterna tema escuro / claro.");
-
-            y = 330;
-            _task = new Label
-            {
-                Text = "Pronto — passe o mouse nos cards para detalhes",
-                Location = new Point(26, y),
-                Size = new Size(680, 22),
+                Text = "0%",
+                Font = new Font("Segoe UI Semibold", 28f),
                 ForeColor = Accent,
-                Font = new Font("Segoe UI Semibold", 10f)
+                Location = new Point(18, 14),
+                AutoSize = true
             };
-            Controls.Add(_task);
-
-            _btnCancel = MakeBtn(780, y - 4, 146, 32, "Cancelar", Color.FromArgb(127, 29, 29));
-            _btnCancel.Enabled = false;
-            _btnCancel.Click += (s, e) =>
-            {
-                try { File.WriteAllText(_cancelFile, "1"); } catch { }
-                try
-                {
-                    if (_proc != null && !_proc.HasExited)
-                        _proc.Kill();
-                }
-                catch { }
-                _task.Text = "Cancelando...";
-                Log("Cancelamento solicitado (flag + kill processo).");
-            };
-            Controls.Add(_btnCancel);
-            Tip(_btnCancel, "Interrompe a execução atual.\nPassos longos (DISM/SFC) podem demorar um pouco para parar.");
+            progressBox.Controls.Add(_pctLabel);
 
             _bar = new ProgressBar
             {
-                Location = new Point(24, 362),
-                Size = new Size(902, 18),
+                Location = new Point(18, 58),
+                Size = new Size(680, 14),
                 Minimum = 0,
-                Maximum = 100
+                Maximum = 100,
+                Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
             };
-            Controls.Add(_bar);
-            Tip(_bar, "Progresso da limpeza em andamento.");
+            progressBox.Controls.Add(_bar);
 
-            _result = new Label
+            _taskLabel = new Label
             {
-                Text = "Resumo antes/depois aparece aqui.\nDica: rode Health Score ou Estimar antes da primeira limpeza.",
-                Location = new Point(24, 390),
-                Size = new Size(902, 72),
-                BackColor = DarkCard,
-                ForeColor = Color.White,
-                Padding = new Padding(12),
+                Text = "Pronto — escolha um perfil acima",
+                Location = new Point(18, 80),
+                Size = new Size(680, 20),
+                ForeColor = Accent,
+                Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
+            };
+            progressBox.Controls.Add(_taskLabel);
+
+            _btnCancel = FlatBtn(720, 20, 80, 32, "Parar", Danger);
+            _btnCancel.Enabled = false;
+            _btnCancel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            _btnCancel.Click += (s, e) => CancelRun();
+            progressBox.Controls.Add(_btnCancel);
+            Tip(_btnCancel, "Cancela a execução em andamento.");
+
+            // Stats block
+            var stats = MakeCard(28, 512, 820, 90);
+            stats.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+            _content.Controls.Add(stats);
+
+            _beforeAfter = new Label
+            {
+                Text = "Disco  — GB livres\nRode um perfil para ver antes → depois",
+                Location = new Point(18, 16),
+                Size = new Size(420, 56),
+                ForeColor = TextMain,
                 Font = new Font("Segoe UI", 10f)
             };
-            Controls.Add(_result);
-            Tip(_result, "Painel de resultado: espaço em disco, RAM e Health Score antes/depois.");
+            stats.Controls.Add(_beforeAfter);
 
+            var sep = new Panel
+            {
+                Location = new Point(460, 16),
+                Size = new Size(1, 58),
+                BackColor = Border
+            };
+            stats.Controls.Add(sep);
+
+            _healthLabel = new Label
+            {
+                Text = "Health\n—/100",
+                Location = new Point(490, 16),
+                Size = new Size(280, 56),
+                ForeColor = Accent,
+                Font = new Font("Segoe UI Semibold", 14f)
+            };
+            stats.Controls.Add(_healthLabel);
+            Tip(_healthLabel, "Nota de saúde 0–100 (disco, RAM, lixo recuperável).");
+
+            // Log strip
             _log = new TextBox
             {
                 Multiline = true,
                 ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
-                Location = new Point(24, 474),
-                Size = new Size(902, 240),
-                BackColor = Color.FromArgb(4, 6, 10),
-                ForeColor = Color.FromArgb(110, 231, 183),
-                Font = new Font("Consolas", 8.5f),
-                BorderStyle = BorderStyle.FixedSingle,
-                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
+                Location = new Point(860, 90),
+                Size = new Size(0, 0),
+                Visible = false
             };
-            Controls.Add(_log);
-            Tip(_log, "Log ao vivo da sessão. O mesmo conteúdo é salvo em Documentos\\PC-Otimizador-Logs.");
-
-            Log("Bem-vindo! Passe o mouse nos botões (balões de ajuda) ou clique em Ajuda.");
-            Log("Recomendado: Dry-run → Estimar → Limpeza Segura.");
-            NextTip(false);
-        }
-
-        void Tip(Control c, string text)
-        {
-            if (c == null || string.IsNullOrEmpty(text)) return;
-            _tips.SetToolTip(c, text);
-        }
-
-        void NextTip(bool fromClick)
-        {
-            if (fromClick) _tipIndex = (_tipIndex + 1) % Tips.Length;
-            _tipBanner.Text = "💡  " + Tips[_tipIndex] + "  (clique para outra)";
-            if (fromClick) Log("Dica: " + Tips[_tipIndex]);
-        }
-
-        void ShowHelp()
-        {
-            string msg =
-                "GUIA RÁPIDO\n" +
-                "────────────\n\n" +
-                "1) Marque Dry-run e rode Limpeza Segura → vê o que aconteceria.\n" +
-                "2) Desmarque Dry-run e rode de novo para limpar de verdade.\n" +
-                "3) Health Score / Estimar → só medem, não apagam.\n\n" +
-                "SAFE = não muda DNS nem energia.\n" +
-                "RISK = pede confirmação extra (DNS / IP / alto desempenho).\n\n" +
-                "NUNCA apagamos: Documentos, Fotos, Vídeos, Música,\n" +
-                "Desktop, Downloads, OneDrive e pastas da Whitelist.\n\n" +
-                "Logs: Documentos\\PC-Otimizador-Logs\n" +
-                "Cancelar: botão vermelho durante a execução.\n\n" +
-                "Dúvida? Prefira sempre Limpeza Segura ★";
-            MessageBox.Show(msg, "Ajuda — PC Otimizador Pro", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
-
-        void OpenLogsFolder()
-        {
-            try
+            // Keep a compact log under stats via status label instead of huge console on home
+            _statusLabel = new Label
             {
-                if (!Directory.Exists(_logsDir))
-                    Directory.CreateDirectory(_logsDir);
-                Process.Start("explorer.exe", _logsDir);
-                Log("Abrindo pasta de logs: " + _logsDir);
-            }
-            catch (Exception ex)
+                Text = "",
+                Location = new Point(28, 610),
+                Size = new Size(820, 40),
+                ForeColor = Muted,
+                Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
+            };
+            _content.Controls.Add(_statusLabel);
+
+            BuildPageInicio();
+            BuildPageFerramentas();
+            BuildPageAjuda();
+            ShowPage("inicio");
+            HighlightNav("inicio");
+
+            Shown += (s, e) => RefreshHealthAsync();
+            LogLine("Interface alinhada ao dashboard do README. Passe o mouse nos cards.");
+        }
+
+        void BuildSidebar()
+        {
+            var brand = new Label
             {
-                MessageBox.Show("Não foi possível abrir a pasta de logs.\n" + ex.Message, "Logs");
+                Text = "  ◈  PC OTIMIZADOR",
+                Font = new Font("Segoe UI Semibold", 11f),
+                ForeColor = Accent,
+                Location = new Point(12, 22),
+                Size = new Size(196, 28)
+            };
+            _sidebar.Controls.Add(brand);
+
+            int y = 70;
+            AddNav("inicio", "INÍCIO", y, () => ShowPage("inicio")); y += 48;
+            AddNav("limpeza", "LIMPEZA", y, () => ShowPage("inicio")); y += 48;
+            AddNav("desempenho", "DESEMPENHO", y, () => ShowPage("inicio")); y += 48;
+            AddNav("internet", "INTERNET", y, () => ShowPage("inicio")); y += 48;
+            AddNav("ferramentas", "FERRAMENTAS", y, () => ShowPage("ferramentas")); y += 48;
+            AddNav("ajuda", "AJUDA", y, () => ShowPage("ajuda")); y += 48;
+
+            var protect = new RoundPanel
+            {
+                Location = new Point(16, 620),
+                Size = new Size(188, 56),
+                BackColor = Card,
+                BorderColor = Border,
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Left
+            };
+            _sidebar.Controls.Add(protect);
+
+            _protectDot = new Label
+            {
+                Text = "●",
+                ForeColor = Ok,
+                Location = new Point(12, 16),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 12f)
+            };
+            protect.Controls.Add(_protectDot);
+
+            var protLbl = new Label
+            {
+                Text = "PROTEÇÃO ATIVA\nWhitelist ligada",
+                ForeColor = TextMain,
+                Location = new Point(36, 12),
+                Size = new Size(140, 36),
+                Font = new Font("Segoe UI", 8.5f)
+            };
+            protect.Controls.Add(protLbl);
+            Tip(protect, "Documentos, Fotos, Downloads, Desktop, Música e OneDrive estão protegidos.");
+        }
+
+        void AddNav(string key, string text, int y, Action act)
+        {
+            var b = new Button
+            {
+                Text = "  " + text,
+                Tag = key,
+                Location = new Point(12, y),
+                Size = new Size(196, 40),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = PanelBg,
+                ForeColor = Muted,
+                Font = new Font("Segoe UI Semibold", 9.5f),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Cursor = Cursors.Hand
+            };
+            b.FlatAppearance.BorderSize = 1;
+            b.FlatAppearance.BorderColor = PanelBg;
+            b.Click += (s, e) =>
+            {
+                HighlightNav(key);
+                act();
+            };
+            _sidebar.Controls.Add(b);
+            _navBtns.Add(b);
+        }
+
+        void HighlightNav(string key)
+        {
+            _activeNav = key;
+            foreach (var b in _navBtns)
+            {
+                bool on = string.Equals((string)b.Tag, key, StringComparison.OrdinalIgnoreCase)
+                          || (key == "inicio" && (string)b.Tag == "inicio");
+                // keep limpeza/desempenho/internet highlighted only when that nav key matches
+                on = string.Equals((string)b.Tag, key, StringComparison.OrdinalIgnoreCase);
+                b.ForeColor = on ? Accent : Muted;
+                b.BackColor = on ? Card : PanelBg;
+                b.FlatAppearance.BorderColor = on ? Accent : PanelBg;
             }
         }
 
-        void AddActionBtn(int x, int y, int w, string text, Action act, string tip)
+        void BuildPageInicio()
         {
-            var b = MakeBtn(x, y, w, 36, text, Color.FromArgb(30, 41, 59));
+            var page = new Panel
+            {
+                Location = new Point(28, 88),
+                Size = new Size(820, 290),
+                BackColor = Bg,
+                Name = "page_inicio"
+            };
+            _content.Controls.Add(page);
+            _pages["inicio"] = page;
+
+            page.Controls.Add(MakePresetCard(0, 0, 190, 150,
+                "LIMPEZA SEGURA", "Ideal para manter o PC limpo e protegido.", "SAFE", Accent,
+                () => RunPreset("safe", false),
+                "Recomendado. Temp, lixeira, caches. Não muda DNS/energia."));
+
+            page.Controls.Add(MakePresetCard(206, 0, 190, 150,
+                "TURBO GAMER", "Máximo desempenho para jogos e tarefas pesadas.", "RISK", Danger,
+                () => RunPreset("gamer", true),
+                "Pode ativar Alto Desempenho e DNS Cloudflare."));
+
+            page.Controls.Add(MakePresetCard(412, 0, 190, 150,
+                "INTERNET", "Otimiza conexão e melhora a navegação.", "RISK", Warn,
+                () => RunPreset("net", true),
+                "Flush DNS/ARP; pode renovar IP e DNS Cloudflare."));
+
+            page.Controls.Add(MakePresetCard(618, 0, 190, 150,
+                "NOTEBOOK", "Perfil ideal para notebooks e bateria.", "SAFE", Ok,
+                () => RunPreset("notebook", false),
+                "Limpeza segura + plano de energia equilibrado."));
+
+            var row2 = new Label
+            {
+                Text = "Atalhos:  Estimar  ·  Completo  ·  Agendar  ·  Whitelist  ·  Abrir logs",
+                Location = new Point(0, 170),
+                Size = new Size(820, 22),
+                ForeColor = Muted
+            };
+            page.Controls.Add(row2);
+
+            int x = 0;
+            page.Controls.Add(SmallAction(ref x, 200, "Estimar", () => RunCli("-Mode scan -AutoYes"), "Só mede quanto espaço liberaria."));
+            page.Controls.Add(SmallAction(ref x, 200, "Completo", () => RunPreset("full", false), "Limpeza ampla (mais demorada)."));
+            page.Controls.Add(SmallAction(ref x, 200, "Agendar", () => ScheduleWeekly(), "Limpeza Segura todo domingo 10h."));
+            page.Controls.Add(SmallAction(ref x, 200, "Whitelist", () => RunCli("-Mode whitelist -AutoYes"), "Pastas que nunca serão apagadas."));
+            page.Controls.Add(SmallAction(ref x, 200, "Logs", OpenLogsFolder, "Abre Documentos\\PC-Otimizador-Logs."));
+            page.Controls.Add(SmallAction(ref x, 200, "Health", () => RunCli("-Mode health -AutoYes"), "Atualiza a nota 0–100."));
+        }
+
+        Button SmallAction(ref int x, int y, string text, Action act, string tip)
+        {
+            var b = FlatBtn(x, y, 120, 34, text, CardHi);
             b.Click += (s, e) => act();
-            Controls.Add(b);
-            _actionBtns.Add(b);
             Tip(b, tip);
+            x += 130;
+            return b;
         }
 
-        Panel MakeCard(int x, int y, int w, int h, string title, string badge, string riskHint, Color accent, Action onClick, string tip)
+        void BuildPageFerramentas()
         {
-            var p = new Panel { Location = new Point(x, y), Size = new Size(w, h), BackColor = DarkCard, Cursor = Cursors.Hand };
-            p.Controls.Add(new Panel { Location = new Point(0, 0), Size = new Size(4, h), BackColor = accent, Name = "rail" });
-            var b = new Label { Text = badge, ForeColor = accent, Location = new Point(14, 10), AutoSize = true, Font = new Font("Segoe UI Semibold", 8f), Name = "badge" };
-            var t = new Label { Text = title, ForeColor = Color.White, Location = new Point(14, 34), Size = new Size(w - 24, 28), Font = new Font("Segoe UI Semibold", 12f), Name = "title" };
-            var hint = new Label { Text = riskHint, ForeColor = DarkMuted, Location = new Point(14, 66), Size = new Size(w - 24, 20), Font = new Font("Segoe UI", 8f), Name = "hint" };
-            var go = new Label { Text = "Iniciar →", ForeColor = accent, Location = new Point(14, h - 26), AutoSize = true, Name = "go" };
-            p.Controls.Add(b); p.Controls.Add(t); p.Controls.Add(hint); p.Controls.Add(go);
-            EventHandler click = (s, e) => { if (!_running) onClick(); };
-            p.Click += click; t.Click += click; b.Click += click; go.Click += click; hint.Click += click;
-            Tip(p, tip);
-            Tip(t, tip);
-            Tip(b, tip);
-            Tip(hint, tip);
-            Tip(go, tip);
+            var page = new Panel
+            {
+                Location = new Point(28, 88),
+                Size = new Size(820, 290),
+                BackColor = Bg,
+                Visible = false
+            };
+            _content.Controls.Add(page);
+            _pages["ferramentas"] = page;
+
+            var title = new Label
+            {
+                Text = "Ferramentas",
+                Font = new Font("Segoe UI Semibold", 16f),
+                ForeColor = TextMain,
+                Location = new Point(0, 0),
+                AutoSize = true
+            };
+            page.Controls.Add(title);
+
+            var info = new Label
+            {
+                Text = "Ações que só medem ou configuram — sem limpeza agressiva.",
+                ForeColor = Muted,
+                Location = new Point(0, 36),
+                Size = new Size(700, 22)
+            };
+            page.Controls.Add(info);
+
+            int x = 0, y = 80;
+            page.Controls.Add(ToolCard(ref x, y, "Health Score", "Nota 0–100 do PC", () => RunCli("-Mode health -AutoYes")));
+            page.Controls.Add(ToolCard(ref x, y, "Estimar MB", "Simula quanto liberaria", () => RunCli("-Mode scan -AutoYes")));
+            x = 0; y = 180;
+            page.Controls.Add(ToolCard(ref x, y, "Agendar", "Domingo 10h · SAFE", () => ScheduleWeekly()));
+            page.Controls.Add(ToolCard(ref x, y, "Abrir logs", "Histórico das sessões", OpenLogsFolder));
+        }
+
+        RoundPanel ToolCard(ref int x, int y, string title, string sub, Action act)
+        {
+            var p = MakeCard(x, y, 250, 80);
+            p.Cursor = Cursors.Hand;
+            var t = new Label { Text = title, Font = new Font("Segoe UI Semibold", 12f), ForeColor = Accent, Location = new Point(16, 16), AutoSize = true };
+            var s = new Label { Text = sub, ForeColor = Muted, Location = new Point(16, 44), AutoSize = true };
+            p.Controls.Add(t); p.Controls.Add(s);
+            EventHandler click = (o, e) => { if (!_running) act(); };
+            p.Click += click; t.Click += click; s.Click += click;
+            Tip(p, title + "\n" + sub);
+            x += 270;
             return p;
         }
 
-        Button MakeBtn(int x, int y, int w, int h, string text, Color bg)
+        void BuildPageAjuda()
+        {
+            var page = new Panel
+            {
+                Location = new Point(28, 88),
+                Size = new Size(820, 290),
+                BackColor = Bg,
+                Visible = false
+            };
+            _content.Controls.Add(page);
+            _pages["ajuda"] = page;
+
+            var box = MakeCard(0, 0, 820, 270);
+            page.Controls.Add(box);
+
+            var help = new Label
+            {
+                Text =
+                    "GUIA RÁPIDO\n\n" +
+                    "1. Marque Dry-run e rode Limpeza Segura → vê o que aconteceria.\n" +
+                    "2. Desmarque Dry-run e rode de novo para limpar de verdade.\n" +
+                    "3. Health / Estimar só medem — não apagam.\n\n" +
+                    "SAFE = não muda DNS nem energia.\n" +
+                    "RISK = pede confirmação (DNS / IP / alto desempenho).\n\n" +
+                    "Nunca apagamos: Documentos, Fotos, Vídeos, Música, Desktop, Downloads, OneDrive.\n" +
+                    "Logs: Documentos\\PC-Otimizador-Logs\n\n" +
+                    "Na dúvida, use só Limpeza Segura.",
+                Location = new Point(20, 16),
+                Size = new Size(780, 240),
+                ForeColor = TextMain,
+                Font = new Font("Segoe UI", 10f)
+            };
+            box.Controls.Add(help);
+        }
+
+        void ShowPage(string name)
+        {
+            foreach (var kv in _pages)
+                kv.Value.Visible = string.Equals(kv.Key, name, StringComparison.OrdinalIgnoreCase);
+
+            if (name == "inicio")
+                _heroSub.Text = "Dashboard · Escolha um perfil · Passe o mouse para detalhes";
+            else if (name == "ferramentas")
+                _heroSub.Text = "Ferramentas · Medir, agendar e abrir logs";
+            else
+                _heroSub.Text = "Ajuda · Como usar com segurança";
+        }
+
+        RoundPanel MakeCard(int x, int y, int w, int h)
+        {
+            return new RoundPanel
+            {
+                Location = new Point(x, y),
+                Size = new Size(w, h),
+                BackColor = Card,
+                BorderColor = Border,
+                Radius = 12
+            };
+        }
+
+        RoundPanel MakePresetCard(int x, int y, int w, int h, string title, string sub, string badge, Color accent, Action onClick, string tip)
+        {
+            var p = MakeCard(x, y, w, h);
+            p.Cursor = Cursors.Hand;
+
+            var rail = new Panel { Location = new Point(0, 0), Size = new Size(4, h), BackColor = accent };
+            p.Controls.Add(rail);
+
+            var b = new Label
+            {
+                Text = badge,
+                ForeColor = accent,
+                Location = new Point(14, 12),
+                AutoSize = true,
+                Font = new Font("Segoe UI Semibold", 8f)
+            };
+            var t = new Label
+            {
+                Text = title,
+                ForeColor = TextMain,
+                Location = new Point(14, 36),
+                Size = new Size(w - 28, 40),
+                Font = new Font("Segoe UI Semibold", 11f)
+            };
+            var s = new Label
+            {
+                Text = sub,
+                ForeColor = Muted,
+                Location = new Point(14, 82),
+                Size = new Size(w - 28, 40),
+                Font = new Font("Segoe UI", 8f)
+            };
+            var go = new Label
+            {
+                Text = "Iniciar  →",
+                ForeColor = accent,
+                Location = new Point(14, h - 28),
+                AutoSize = true,
+                Font = new Font("Segoe UI Semibold", 9f)
+            };
+            p.Controls.Add(b); p.Controls.Add(t); p.Controls.Add(s); p.Controls.Add(go);
+
+            EventHandler click = (o, e) => { if (!_running) onClick(); };
+            p.Click += click; b.Click += click; t.Click += click; s.Click += click; go.Click += click;
+            p.MouseEnter += (o, e) => p.BackColor = CardHi;
+            p.MouseLeave += (o, e) => p.BackColor = Card;
+
+            Tip(p, tip);
+            Tip(t, tip);
+            return p;
+        }
+
+        Button FlatBtn(int x, int y, int w, int h, string text, Color bg)
         {
             var b = new Button
             {
@@ -384,59 +627,113 @@ namespace PCOtimizador
                 Size = new Size(w, h),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = bg,
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI Semibold", 9f)
+                ForeColor = TextMain,
+                Font = new Font("Segoe UI Semibold", 9f),
+                Cursor = Cursors.Hand
             };
             b.FlatAppearance.BorderSize = 0;
             return b;
         }
 
-        void ToggleTheme()
+        void Tip(Control c, string text)
         {
-            _light = !_light;
-            BackColor = _light ? LightBg : DarkBg;
-            ForeColor = _light ? Color.FromArgb(15, 23, 42) : Color.FromArgb(241, 245, 249);
-            _title.ForeColor = _light ? Color.FromArgb(15, 118, 110) : Accent;
-            _status.ForeColor = _light ? LightMuted : DarkMuted;
-            _task.ForeColor = _light ? Color.FromArgb(15, 118, 110) : Accent;
-            _tipBanner.BackColor = _light ? Color.FromArgb(254, 249, 195) : Color.FromArgb(30, 41, 20);
-            _tipBanner.ForeColor = _light ? Color.FromArgb(113, 63, 18) : Color.FromArgb(253, 224, 71);
-            _log.BackColor = _light ? Color.White : Color.FromArgb(4, 6, 10);
-            _log.ForeColor = _light ? Color.FromArgb(15, 23, 42) : Color.FromArgb(110, 231, 183);
-            _result.BackColor = _light ? Color.FromArgb(226, 232, 240) : DarkCard;
-            _result.ForeColor = _light ? Color.FromArgb(15, 23, 42) : Color.White;
-            foreach (var card in _cards)
+            if (c != null && !string.IsNullOrEmpty(text))
+                _tips.SetToolTip(c, text);
+        }
+
+        void ScheduleWeekly()
+        {
+            if (MessageBox.Show(
+                "Criar limpeza automática?\n\n• Domingo às 10:00\n• Só Limpeza Segura (SAFE)\n• Não altera DNS/energia",
+                "Agendar", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                return;
+            RunCli("-Mode schedule -AutoYes");
+        }
+
+        void OpenLogsFolder()
+        {
+            try
             {
-                card.BackColor = _light ? LightCard : DarkCard;
-                foreach (Control c in card.Controls)
+                if (!Directory.Exists(_logsDir)) Directory.CreateDirectory(_logsDir);
+                Process.Start("explorer.exe", _logsDir);
+                LogLine("Abrindo logs: " + _logsDir);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Logs");
+            }
+        }
+
+        void CancelRun()
+        {
+            try { File.WriteAllText(_cancelFile, "1"); } catch { }
+            try { if (_proc != null && !_proc.HasExited) _proc.Kill(); } catch { }
+            _taskLabel.Text = "Cancelando...";
+            LogLine("Cancelamento solicitado.");
+        }
+
+        void RefreshHealthAsync()
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
                 {
-                    if (c.Name == "title") c.ForeColor = _light ? Color.FromArgb(15, 23, 42) : Color.White;
-                    if (c.Name == "hint") c.ForeColor = _light ? LightMuted : DarkMuted;
+                    var cli = Path.Combine(_root, "PC-Otimizador-CLI.ps1");
+                    if (!File.Exists(cli)) return;
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"),
+                        Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + cli + "\" -Mode health -AutoYes -StreamProgress",
+                        WorkingDirectory = _root,
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true,
+                        StandardOutputEncoding = Encoding.UTF8
+                    };
+                    using (var p = Process.Start(psi))
+                    {
+                        string line;
+                        while ((line = p.StandardOutput.ReadLine()) != null)
+                        {
+                            if (line.StartsWith("##HEALTH##|"))
+                            {
+                                var parts = line.Substring("##HEALTH##|".Length).Split('|');
+                                if (parts.Length >= 1)
+                                {
+                                    int.TryParse(parts[0], out _healthScore);
+                                    string grade = parts.Length > 1 ? parts[1] : "";
+                                    BeginInvoke(new Action(() =>
+                                    {
+                                        _healthLabel.Text = "Health\n" + _healthScore + "/100" + (grade != "" ? "  (" + grade + ")" : "");
+                                    }));
+                                }
+                            }
+                        }
+                        p.WaitForExit(60000);
+                    }
                 }
-            }
-            foreach (var b in _actionBtns)
-            {
-                if (b == _btnCancel) continue;
-                b.BackColor = _light ? Color.FromArgb(51, 65, 85) : Color.FromArgb(30, 41, 59);
-                b.ForeColor = Color.White;
-            }
+                catch { }
+            });
         }
 
         void RunPreset(string name, bool highRisk)
         {
+            if (name == "safe" || name == "notebook" || name == "full") HighlightNav("limpeza");
+            else if (name == "gamer") HighlightNav("desempenho");
+            else if (name == "net") HighlightNav("internet");
+            ShowPage("inicio");
+
             string explain = PresetExplain(name);
-            string msg = explain + "\n\nExecutar perfil '" + name + "'" + (_dry.Checked ? " (DRY-RUN — só simula)" : "") + "?";
+            string msg = explain + "\n\nExecutar '" + name + "'" + (_dry.Checked ? " (DRY-RUN)" : "") + "?";
             if (highRisk && !_dry.Checked)
             {
-                msg = "ATENÇÃO — perfil com risco de rede/energia\n\n" + explain +
-                      "\n\nPode alterar DNS, renovar IP ou mudar o plano de energia.\nContinuar?";
-                if (MessageBox.Show(msg, "Confirmar alto risco", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                if (MessageBox.Show("ATENÇÃO — pode alterar DNS / IP / energia\n\n" + explain + "\n\nContinuar?",
+                    "Confirmar RISK", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
                     return;
             }
             else if (MessageBox.Show(msg, "Confirmar", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-            {
                 return;
-            }
 
             var args = "-Preset " + name + " -AutoYes -StreamProgress";
             if (_dry.Checked) args += " -DryRun";
@@ -448,18 +745,12 @@ namespace PCOtimizador
         {
             switch (name)
             {
-                case "safe":
-                    return "Limpeza Segura: temporários, lixeira, caches, TRIM.\nNão mexe em DNS/energia. Não apaga arquivos pessoais.";
-                case "gamer":
-                    return "Turbo/Gamer: limpeza + alto desempenho + possíveis ajustes de DNS/rede.";
-                case "net":
-                    return "Internet: flush DNS/ARP, pode renovar IP e usar DNS Cloudflare.";
-                case "notebook":
-                    return "Notebook: limpeza segura + plano equilibrado (melhor p/ bateria).";
-                case "full":
-                    return "Completo: limpeza ampla incluindo caches de apps/navegador (mais demorado).";
-                default:
-                    return "Perfil: " + name;
+                case "safe": return "Limpeza Segura: temporários, lixeira, caches, TRIM.\nNão mexe em DNS/energia.";
+                case "gamer": return "Turbo/Gamer: limpeza + alto desempenho + possíveis ajustes de DNS/rede.";
+                case "net": return "Internet: flush DNS/ARP; pode renovar IP e DNS Cloudflare.";
+                case "notebook": return "Notebook: limpeza segura + plano equilibrado (bateria).";
+                case "full": return "Completo: limpeza ampla incluindo caches de apps/navegador.";
+                default: return "Perfil: " + name;
             }
         }
 
@@ -470,8 +761,7 @@ namespace PCOtimizador
             if (!File.Exists(cli))
             {
                 MessageBox.Show(
-                    "Falta PC-Otimizador-CLI.ps1 na mesma pasta do .exe.\n\n" +
-                    "Extraia o ZIP completo (não só o .exe).",
+                    "Falta PC-Otimizador-CLI.ps1 na pasta do programa.\n\nExtraia o ZIP completo da Release.",
                     "Arquivo faltando", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
@@ -480,9 +770,11 @@ namespace PCOtimizador
             _running = true;
             _btnCancel.Enabled = true;
             _bar.Value = 0;
-            _task.Text = "Iniciando...";
-            _status.Text = "Executando — progresso ao vivo. Use Cancelar se precisar parar.";
-            _result.Text = "Em andamento...";
+            _pctLabel.Text = "0%";
+            _pctLabel.ForeColor = Accent;
+            _taskLabel.Text = "Iniciando...";
+            _beforeAfter.Text = "Em andamento...\nAguarde o progresso.";
+            LogLine("Início: " + extraArgs);
 
             var psi = new ProcessStartInfo
             {
@@ -502,7 +794,7 @@ namespace PCOtimizador
                 {
                     _proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
                     _proc.OutputDataReceived += (s, e) => { if (e.Data != null) BeginInvoke(new Action(() => HandleLine(e.Data))); };
-                    _proc.ErrorDataReceived += (s, e) => { if (e.Data != null) BeginInvoke(new Action(() => Log("ERR " + e.Data))); };
+                    _proc.ErrorDataReceived += (s, e) => { if (e.Data != null) BeginInvoke(new Action(() => LogLine("ERR " + e.Data))); };
                     _proc.Start();
                     _proc.BeginOutputReadLine();
                     _proc.BeginErrorReadLine();
@@ -511,9 +803,10 @@ namespace PCOtimizador
                     {
                         _running = false;
                         _btnCancel.Enabled = false;
-                        _bar.Value = 100;
-                        _task.Text = "Concluído";
-                        _status.Text = "Pronto. Clique em Abrir logs para ver o histórico.";
+                        if (_bar.Value < 100) _bar.Value = 100;
+                        _pctLabel.Text = "100%";
+                        _taskLabel.Text = "Concluído";
+                        HighlightNav("inicio");
                     }));
                 }
                 catch (Exception ex)
@@ -522,9 +815,8 @@ namespace PCOtimizador
                     {
                         _running = false;
                         _btnCancel.Enabled = false;
-                        Log(ex.Message);
-                        MessageBox.Show(ex.Message + "\n\nSe o antivírus bloqueou, use Executar.bat.", "Erro",
-                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        LogLine(ex.Message);
+                        MessageBox.Show(ex.Message + "\n\nSe o antivírus bloqueou, use Executar.bat.", "Erro");
                     }));
                 }
             });
@@ -533,6 +825,7 @@ namespace PCOtimizador
         void HandleLine(string line)
         {
             if (string.IsNullOrEmpty(line)) return;
+
             if (line.StartsWith("##PROGRESS##|"))
             {
                 var p = line.Split('|');
@@ -542,26 +835,17 @@ namespace PCOtimizador
                     int.TryParse(p[1], out cur);
                     int.TryParse(p[2], out total);
                     int.TryParse(p[4], out pct);
-                    _bar.Value = Math.Max(0, Math.Min(100, pct));
-                    _task.Text = string.Format("[{0}/{1}] {2}", cur, total, p[3]);
+                    pct = Math.Max(0, Math.Min(100, pct));
+                    _bar.Value = pct;
+                    _pctLabel.Text = pct + "%";
+                    _taskLabel.Text = string.Format("[{0}/{1}] {2}", cur, total, p[3]);
                 }
                 return;
             }
             if (line.StartsWith("##LOG##|"))
             {
                 var p = line.Split(new[] { '|' }, 3);
-                if (p.Length >= 3) Log(p[2]);
-                return;
-            }
-            if (line.StartsWith("##RESULT##|AFTER|"))
-            {
-                var p = line.Split('|');
-                if (p.Length >= 8)
-                {
-                    _result.Text = string.Format(
-                        "DEPOIS  Disco livre: {0} / {1} GB   |   RAM: {2}/{3} GB\nLiberado ~{4} MB   |   Health Score: {5}\nLog: {6}",
-                        p[2], p[3], p[4], p[5], p[6], p.Length > 8 ? p[8] : "—", p[7]);
-                }
+                if (p.Length >= 3) LogLine(p[2]);
                 return;
             }
             if (line.StartsWith("##RESULT##|BEFORE|"))
@@ -569,36 +853,55 @@ namespace PCOtimizador
                 var p = line.Split('|');
                 if (p.Length >= 6)
                 {
-                    _result.Text = string.Format("ANTES  Disco livre: {0}/{1} GB   |   RAM: {2}/{3} GB\nExecutando...", p[2], p[3], p[4], p[5]);
+                    _diskFree = p[2];
+                    _diskTot = p[3];
+                    _beforeAfter.Text = "ANTES  " + p[2] + " GB livres de " + p[3] + " GB\nRAM " + p[4] + "/" + p[5] + " GB";
                 }
                 return;
             }
-            if (line.StartsWith("##DONE##|"))
+            if (line.StartsWith("##RESULT##|AFTER|"))
             {
-                Log("Status final: " + line.Substring(9));
+                var p = line.Split('|');
+                if (p.Length >= 8)
+                {
+                    string freed = p[6];
+                    string score = p.Length > 8 ? p[8] : "—";
+                    _beforeAfter.Text =
+                        "ANTES  " + _diskFree + " GB  →  DEPOIS  " + p[2] + " GB livres\n" +
+                        "Liberado ~" + freed + " MB   |   RAM " + p[4] + "/" + p[5] + " GB";
+                    _healthLabel.Text = "Health\n" + score + "/100";
+                    LogLine("Resultado: +" + freed + " MB | Health " + score);
+                }
                 return;
             }
             if (line.StartsWith("##HEALTH##|"))
             {
                 var parts = line.Substring("##HEALTH##|".Length).Split('|');
-                if (parts.Length >= 2)
+                if (parts.Length >= 1)
                 {
-                    _result.Text = string.Format(
-                        "Health Score: {0}/100 (nota {1})\n{2}\nQuanto maior o score, melhor o 'fôlego' do PC.",
-                        parts[0], parts[1], string.Join("  |  ", parts));
-                }
-                else
-                {
-                    _result.Text = line.Replace("##HEALTH##|", "Health Score: ").Replace("|", "  |  ");
+                    _healthLabel.Text = "Health\n" + parts[0] + "/100" + (parts.Length > 1 ? "  (" + parts[1] + ")" : "");
+                    _beforeAfter.Text = string.Join("  |  ", parts);
                 }
                 return;
             }
-            Log(line);
+            if (line.StartsWith("##DONE##|"))
+            {
+                LogLine("Status: " + line.Substring(9));
+                return;
+            }
+            LogLine(line);
         }
 
-        void Log(string msg)
+        void LogLine(string msg)
         {
-            _log.AppendText("[" + DateTime.Now.ToString("HH:mm:ss") + "] " + msg + Environment.NewLine);
+            _statusLabel.Text = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + msg;
+            try
+            {
+                if (!Directory.Exists(_logsDir)) Directory.CreateDirectory(_logsDir);
+                File.AppendAllText(Path.Combine(_logsDir, "gui-live.txt"),
+                    DateTime.Now.ToString("HH:mm:ss") + " " + msg + Environment.NewLine, Encoding.UTF8);
+            }
+            catch { }
         }
     }
 }

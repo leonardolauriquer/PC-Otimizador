@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Linux-Bash-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux">
   <img src="https://img.shields.io/badge/macOS-Bash-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Android-Termux-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
-  <img src="https://img.shields.io/badge/v5.3-Trust%20%7C%20core%20presets%20%7C%20risk-0d9488?style=for-the-badge" alt="v5.3">
+  <img src="https://img.shields.io/badge/v5.4-Dashboard%20GUI%20%3D%20hero-0d9488?style=for-the-badge" alt="v5.4">
   <img src="https://img.shields.io/badge/Licença-MIT-22c55e?style=for-the-badge" alt="MIT">
 </p>
 
@@ -74,6 +74,16 @@ Só limpa o ambiente Termux — **não** o telefone inteiro. Ver [`android/READM
 ### iOS
 
 Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
+
+---
+
+## Novidades v5.4
+
+| Recurso | Descrição |
+|---------|-----------|
+| **GUI = foto do README** | Sidebar + cards + % grande + Health + antes/depois |
+| **Navegação segura** | Menu lateral não dispara limpeza sozinho |
+| **Ferramentas / Ajuda** | Telas dedicadas no dashboard |
 
 ---
 
