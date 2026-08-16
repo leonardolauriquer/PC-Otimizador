@@ -23,6 +23,11 @@ $gui = Get-Content -Raw (Join-Path $root 'GuiNative.cs')
 $json = Get-Content -Raw (Join-Path $root 'core\presets.json') | ConvertFrom-Json
 
 Assert-Contains $engine 'function Test-CleanupTarget' 'Windows cleanup target guard'
+Assert-Contains $engine 'function Invoke-WithFallback' 'Windows controlled fallback pipeline'
+Assert-Contains $engine 'function Invoke-ExternalChecked' 'External command exit-code verification'
+Assert-Contains $engine 'function Get-CompatibilityProfile' 'Windows capability detection'
+Assert-Contains $engine 'Snapshot CIM falhou; tentando WMI legado' 'System snapshot legacy fallback'
+Assert-Contains $engine 'O plano Alto Desempenho nao ficou ativo' 'Power plan postcondition verification'
 Assert-Contains $engine 'AllowHighRisk' 'Engine risk capability'
 Assert-Contains $engine 'StateFlags{0}' 'CleanMgr temporary profile'
 Assert-Contains $update 'Test-ZipEntriesSafe' 'ZIP traversal validation'

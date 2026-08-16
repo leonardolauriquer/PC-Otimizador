@@ -167,10 +167,82 @@ function Write-Log {
   }
 }
 
+function Test-CommandAvailable {
+  param([Parameter(Mandatory=$true)][string]$Name)
+  return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Invoke-ExternalChecked {
+  param(
+    [Parameter(Mandatory=$true)][string]$FilePath,
+    [string[]]$ArgumentList = @(),
+    [int[]]$SuccessExitCodes = @(0),
+    [string]$Label = $FilePath
+  )
+  $cmd = Get-Command $FilePath -ErrorAction SilentlyContinue
+  if (-not $cmd) { throw ("{0} indisponivel neste Windows" -f $Label) }
+  $p = Start-Process -FilePath $cmd.Source -ArgumentList $ArgumentList -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
+  if ($SuccessExitCodes -notcontains [int]$p.ExitCode) { throw ("{0} retornou codigo {1}" -f $Label, $p.ExitCode) }
+  Write-Log ("{0}: concluido (codigo {1})" -f $Label, $p.ExitCode)
+  return $p.ExitCode
+}
+
+function Invoke-WithFallback {
+  param([Parameter(Mandatory=$true)][string]$Name, [Parameter(Mandatory=$true)][scriptblock[]]$Attempts)
+  $errors = @()
+  for ($i = 0; $i -lt $Attempts.Count; $i++) {
+    try {
+      if ($i -gt 0) { Write-Log ("{0}: tentando metodo alternativo {1}/{2}" -f $Name, ($i + 1), $Attempts.Count) 'WARN' }
+      $value = & $Attempts[$i]
+      Write-Log ("{0}: verificado pelo metodo {1}" -f $Name, ($i + 1))
+      return $value
+    } catch {
+      $errors += $_.Exception.Message
+      Write-Log ("{0}: metodo {1} falhou: {2}" -f $Name, ($i + 1), $_.Exception.Message) 'WARN'
+    }
+  }
+  throw ("{0}: nenhum metodo funcionou ({1})" -f $Name, ($errors -join ' | '))
+}
+
+function Get-CompatibilityProfile {
+  $os = $null
+  try { $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop } catch {}
+  [pscustomobject]@{
+    Version = if ($null -ne $os -and $os.Version) { [string]$os.Version } else { [Environment]::OSVersion.Version.ToString() }
+    Build = if ($null -ne $os -and $os.BuildNumber) { [string]$os.BuildNumber } else { [Environment]::OSVersion.Version.Build.ToString() }
+    PowerShell = $PSVersionTable.PSVersion.ToString(); Is64Bit = [Environment]::Is64BitOperatingSystem
+    IsAdmin = Test-IsAdmin; HasCim = (Test-CommandAvailable 'Get-CimInstance')
+    HasStorage = (Test-CommandAvailable 'Optimize-Volume'); HasDnsCmdlet = (Test-CommandAvailable 'Clear-DnsClientCache')
+    HasDism = (Test-CommandAvailable 'dism.exe'); HasSfc = (Test-CommandAvailable 'sfc.exe')
+  }
+}
+
 function Get-SystemSnapshot {
-  $os = Get-CimInstance Win32_OperatingSystem
-  $cs = Get-CimInstance Win32_ComputerSystem
-  $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
+  try {
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+    $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+    $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction Stop
+  } catch {
+    Write-Log ("Snapshot CIM falhou; tentando WMI legado: {0}" -f $_.Exception.Message) 'WARN'
+    if (Test-CommandAvailable 'Get-WmiObject') {
+      try {
+        $os = Get-WmiObject Win32_OperatingSystem -ErrorAction Stop
+        $cs = Get-WmiObject Win32_ComputerSystem -ErrorAction Stop
+        $disk = Get-WmiObject Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction Stop
+      } catch { $os = $null; Write-Log ("Snapshot WMI tambem falhou: {0}" -f $_.Exception.Message) 'WARN' }
+    }
+    if ($null -eq $os) {
+      $driveRoot = if ($env:SystemDrive) { $env:SystemDrive + '\' } else { 'C:\' }
+      $drive = New-Object IO.DriveInfo($driveRoot)
+      Write-Log 'CIM e WMI indisponiveis; memoria sera marcada como nao mensuravel.' 'WARN'
+      return [pscustomobject]@{
+        PC = [Environment]::MachineName; OS = [Environment]::OSVersion.VersionString
+        DiskFree = [math]::Round($drive.AvailableFreeSpace / 1GB, 2); DiskTot = [math]::Round($drive.TotalSize / 1GB, 2)
+        DiskUsed = [math]::Round((($drive.TotalSize - $drive.AvailableFreeSpace) / $drive.TotalSize) * 100, 1)
+        RamUsed = 0; RamTot = 0
+      }
+    }
+  }
   [pscustomobject]@{
     PC       = $cs.Name
     OS       = ($os.Caption -replace 'Microsoft ', '')
@@ -184,8 +256,11 @@ function Get-SystemSnapshot {
 
 function Set-RegDword {
   param([string]$Path, [string]$Name, [int]$Value)
-  if (-not (Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
-  Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type DWord -Force -ErrorAction SilentlyContinue
+  if (-not (Test-Path $Path)) { New-Item -Path $Path -Force -ErrorAction Stop | Out-Null }
+  Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type DWord -Force -ErrorAction Stop
+  $actual = (Get-ItemProperty -Path $Path -Name $Name -ErrorAction Stop).$Name
+  $expectedUnsigned = [BitConverter]::ToUInt32([BitConverter]::GetBytes([int]$Value), 0)
+  if ([uint64]$actual -ne [uint64]$expectedUnsigned) { throw ("Registro nao confirmou {0}\{1}" -f $Path, $Name) }
 }
 
 # ── Actions: Limpeza ─────────────────────────────────────────────────────────
@@ -400,10 +475,10 @@ function Invoke-CleanMgr {
       $changed += [pscustomobject]@{ Path = $path; Had = $hadOld; Value = $oldValue }
       Set-ItemProperty $path -Name $flag -Value 2 -Type DWord -Force -EA Stop
     }
-    Start-Process cleanmgr.exe -ArgumentList ("/sagerun:{0}" -f $slot) -Wait -WindowStyle Hidden -EA Stop
+    $null = Invoke-ExternalChecked 'cleanmgr.exe' @(("/sagerun:{0}" -f $slot)) @(0) 'Limpeza de Disco'
     Write-Log 'cleanmgr concluido'; return 0
   } catch {
-    Write-Log ("cleanmgr falhou: {0}" -f $_) 'WARN'; return 0
+    Write-Log ("cleanmgr falhou: {0}" -f $_) 'WARN'; throw
   } finally {
     foreach ($entry in $changed) {
       if ($entry.Had) { Set-ItemProperty $entry.Path -Name $flag -Value $entry.Value -Type DWord -Force -EA SilentlyContinue }
@@ -414,8 +489,8 @@ function Invoke-CleanMgr {
 
 function Invoke-DismCleanup {
   Write-Log 'DISM Component Cleanup (pode demorar)...'
-  $p = Start-Process dism.exe -ArgumentList '/Online','/Cleanup-Image','/StartComponentCleanup' -Wait -PassThru -WindowStyle Hidden
-  Write-Log "DISM exit: $($p.ExitCode)"; return 0
+  $null = Invoke-ExternalChecked 'dism.exe' @('/Online','/Cleanup-Image','/StartComponentCleanup') @(0,3010) 'DISM Component Cleanup'
+  return 0
 }
 
 function Invoke-CleanUpgradeLeftovers {
@@ -439,24 +514,41 @@ function Invoke-OptimizeDrives {
   Write-Log 'Otimizando unidades (TRIM/SSD)...'
   Get-Volume | Where-Object { $_.DriveLetter -and $_.FileSystemType -eq 'NTFS' } | ForEach-Object {
     Write-Log "  Unidade $($_.DriveLetter):"
-    Optimize-Volume -DriveLetter $_.DriveLetter -ReTrim -EA SilentlyContinue
+    $letter = [string]$_.DriveLetter
+    Invoke-WithFallback ("Otimizar unidade {0}:" -f $letter) @(
+      { Optimize-Volume -DriveLetter $letter -ReTrim -ErrorAction Stop | Out-Null; return 0 },
+      { $null = Invoke-ExternalChecked 'defrag.exe' @(("{0}:" -f $letter),'/L','/U') @(0) ("Defrag/TRIM {0}:" -f $letter); return 0 }
+    ) | Out-Null
   }
   return 0
 }
 
 function Invoke-HighPerformance {
   Write-Log 'Plano Alto Desempenho...'
-  $null = cmd /c "powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
-  if ($LASTEXITCODE -ne 0) {
-    $null = cmd /c "powercfg /duplicatescheme 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
-    $null = cmd /c "powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
-  }
+  $script:ActivatedHighPerformanceGuid = $null
+  $guid = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
+  Invoke-WithFallback 'Plano Alto Desempenho' @(
+    { $null = Invoke-ExternalChecked 'powercfg.exe' @('/setactive',$guid) @(0) 'powercfg'; return 0 },
+    {
+      $duplicate = (& powercfg.exe /duplicatescheme $guid 2>&1 | Out-String)
+      if ($LASTEXITCODE -ne 0 -or $duplicate -notmatch '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}') { throw 'nao foi possivel duplicar o plano' }
+      $script:ActivatedHighPerformanceGuid = $matches[0]
+      $null = Invoke-ExternalChecked 'powercfg.exe' @('/setactive',$script:ActivatedHighPerformanceGuid) @(0) 'powercfg alternativo'
+      return 0
+    }
+  ) | Out-Null
+  if ($script:ActivatedHighPerformanceGuid) { $guid = $script:ActivatedHighPerformanceGuid }
+  $active = (& powercfg.exe /getactivescheme 2>&1 | Out-String)
+  if ($active -notmatch [regex]::Escape($guid)) { throw 'O plano Alto Desempenho nao ficou ativo apos a tentativa.' }
   return 0
 }
 
 function Invoke-BalancedPower {
   Write-Log 'Plano Equilibrado...'
-  powercfg /setactive 381b4222-f694-41f0-9685-ff5bb260df2e 2>$null
+  $guid = '381b4222-f694-41f0-9685-ff5bb260df2e'
+  $null = Invoke-ExternalChecked 'powercfg.exe' @('/setactive',$guid) @(0) 'Plano Equilibrado'
+  $active = (& powercfg.exe /getactivescheme 2>&1 | Out-String)
+  if ($active -notmatch [regex]::Escape($guid)) { throw 'O plano Equilibrado nao ficou ativo apos a tentativa.' }
   return 0
 }
 
@@ -522,41 +614,45 @@ function Invoke-GameMode {
 
 # ── Actions: Internet ────────────────────────────────────────────────────────
 function Invoke-FlushDNS {
-  Write-Log 'Flush DNS...'; ipconfig /flushdns | Out-Null; return 0
+  Write-Log 'Flush DNS...'
+  Invoke-WithFallback 'Limpeza DNS' @(
+    { if (-not (Test-CommandAvailable 'Clear-DnsClientCache')) { throw 'cmdlet ausente' }; Clear-DnsClientCache -ErrorAction Stop; return 0 },
+    { $null = Invoke-ExternalChecked 'ipconfig.exe' @('/flushdns') @(0) 'ipconfig /flushdns'; return 0 }
+  ) | Out-Null
+  return 0
 }
 
 function Invoke-FlushARP {
-  Write-Log 'Flush ARP...'; arp -d * 2>$null | Out-Null; return 0
+  Write-Log 'Flush ARP...'; $null = Invoke-ExternalChecked 'arp.exe' @('-d','*') @(0) 'Limpeza ARP'; return 0
 }
 
 function Invoke-RenewIP {
   Write-Log 'Renovando IP...'
-  ipconfig /release | Out-Null
+  $null = Invoke-ExternalChecked 'ipconfig.exe' @('/release') @(0) 'Liberar IP'
   Start-Sleep -Milliseconds 500
-  ipconfig /renew | Out-Null
+  $null = Invoke-ExternalChecked 'ipconfig.exe' @('/renew') @(0) 'Renovar IP'
   return 0
 }
 
 function Invoke-ResetWinsock {
   Write-Log 'Reset Winsock (reinicie depois)...'
-  netsh winsock reset catalog 2>$null | Out-Null
+  $null = Invoke-ExternalChecked 'netsh.exe' @('winsock','reset','catalog') @(0) 'Reset Winsock'
   return 0
 }
 
 function Invoke-ResetTCPIP {
   Write-Log 'Reset TCP/IP (reinicie depois)...'
-  netsh int ip reset 2>$null | Out-Null
+  $null = Invoke-ExternalChecked 'netsh.exe' @('int','ip','reset') @(0) 'Reset TCP/IP'
   return 0
 }
 
 function Invoke-NetOptimizations {
   Write-Log 'Otimizacoes TCP leves...'
-  netsh int tcp set global autotuninglevel=normal | Out-Null
-  netsh int tcp set global chimney=disabled 2>$null | Out-Null
-  netsh int tcp set global dca=enabled 2>$null | Out-Null
-  netsh int tcp set global netdma=enabled 2>$null | Out-Null
-  netsh int tcp set global ecncapability=enabled 2>$null | Out-Null
-  netsh int tcp set global timestamps=disabled 2>$null | Out-Null
+  $null = Invoke-ExternalChecked 'netsh.exe' @('int','tcp','set','global','autotuninglevel=normal') @(0) 'TCP autotuning'
+  foreach ($setting in @('chimney=disabled','dca=enabled','netdma=enabled','ecncapability=enabled','timestamps=disabled')) {
+    try { $null = Invoke-ExternalChecked 'netsh.exe' @('int','tcp','set','global',$setting) @(0) ("TCP {0}" -f $setting) }
+    catch { Write-Log ("Opcao TCP nao suportada nesta versao ({0}): {1}" -f $setting, $_.Exception.Message) 'WARN' }
+  }
   # Network Throttling Index (multimedia)
   Set-RegDword 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' 'NetworkThrottlingIndex' -1
   Set-RegDword 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' 'SystemResponsiveness' 10
@@ -595,32 +691,40 @@ function Invoke-DisableNagle {
 }
 
 function Invoke-ClearNetBIOS {
-  Write-Log 'Limpando cache NetBIOS...'; nbtstat -R 2>$null | Out-Null; nbtstat -RR 2>$null | Out-Null; return 0
+  Write-Log 'Limpando cache NetBIOS...'
+  $null = Invoke-ExternalChecked 'nbtstat.exe' @('-R') @(0) 'NetBIOS cache'
+  $null = Invoke-ExternalChecked 'nbtstat.exe' @('-RR') @(0) 'NetBIOS refresh'
+  return 0
 }
 
 # ── Actions: Manutencao ──────────────────────────────────────────────────────
 function Invoke-RestorePoint {
   Write-Log 'Criando ponto de restauracao...'
-  try {
-    Enable-ComputerRestore -Drive 'C:\' -EA SilentlyContinue
-    Checkpoint-Computer -Description 'PC Otimizador Pro' -RestorePointType MODIFY_SETTINGS -EA Stop
-    Write-Log 'Ponto de restauracao criado.'
-  } catch {
-    Write-Log "Restore point: $_ (pode ja existir um recente)" 'WARN'
-  }
+  try { Enable-ComputerRestore -Drive 'C:\' -ErrorAction Stop } catch { Write-Log ("Protecao do Sistema: {0}" -f $_.Exception.Message) 'WARN' }
+  Invoke-WithFallback 'Ponto de restauracao' @(
+    { Checkpoint-Computer -Description 'PC Otimizador Pro' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop; return 0 },
+    {
+      if (-not (Test-CommandAvailable 'Get-WmiObject')) { throw 'WMI legado indisponivel' }
+      $sr = Get-WmiObject -List SystemRestore -Namespace root\default -ErrorAction Stop
+      $result = $sr.CreateRestorePoint('PC Otimizador Pro', 12, 100)
+      if ([int]$result.ReturnValue -ne 0) { throw ("SystemRestore retornou {0}" -f $result.ReturnValue) }
+      return 0
+    }
+  ) | Out-Null
+  Write-Log 'Ponto de restauracao criado e confirmado.'
   return 0
 }
 
 function Invoke-SFC {
   Write-Log 'SFC /scannow (demorado)...'
-  $p = Start-Process sfc.exe -ArgumentList '/scannow' -Wait -PassThru -WindowStyle Hidden
-  Write-Log "SFC exit: $($p.ExitCode)"; return 0
+  $null = Invoke-ExternalChecked 'sfc.exe' @('/scannow') @(0,1) 'SFC'
+  return 0
 }
 
 function Invoke-DismRestore {
   Write-Log 'DISM RestoreHealth (demorado)...'
-  $p = Start-Process dism.exe -ArgumentList '/Online','/Cleanup-Image','/RestoreHealth' -Wait -PassThru -WindowStyle Hidden
-  Write-Log "DISM Restore exit: $($p.ExitCode)"; return 0
+  $null = Invoke-ExternalChecked 'dism.exe' @('/Online','/Cleanup-Image','/RestoreHealth') @(0,3010) 'DISM RestoreHealth'
+  return 0
 }
 
 function Invoke-ScanOnly {
@@ -871,6 +975,10 @@ function Invoke-OptimizationBatch {
   Import-Whitelist
   $script:DryRun = [bool]$DryRun
   $null = Initialize-SessionLog
+  $compat = Get-CompatibilityProfile
+  Write-Log ("Compatibilidade | Windows {0} build {1} | PowerShell {2} | 64-bit={3} | Admin={4}" -f $compat.Version, $compat.Build, $compat.PowerShell, $compat.Is64Bit, $compat.IsAdmin)
+  if (-not $compat.HasCim) { Write-Log 'CIM ausente: inventario e metricas usarao metodos legados.' 'WARN' }
+  if (-not $compat.HasDism) { Write-Log 'DISM ausente: reparos de imagem serao marcados como indisponiveis.' 'WARN' }
   $before = Get-SystemSnapshot
   $media = Get-DriveMediaInfo
   if ($media.HasSSD) { Write-Log (Get-T 'ssd') } elseif ($media.HasHDD) { Write-Log (Get-T 'hdd') }

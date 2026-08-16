@@ -11,7 +11,7 @@ function Assert-True([bool]$Cond, [string]$Name) {
   else { Write-Host "  FAIL $Name" -ForegroundColor Red; $script:failed++ }
 }
 
-Write-Host '== Engine tests v5.6 ==' -ForegroundColor Cyan
+Write-Host '== Engine tests v5.7 ==' -ForegroundColor Cyan
 Assert-True (Test-Path function:Get-HealthScore) 'Get-HealthScore'
 Assert-True (Test-Path function:Get-DriveMediaInfo) 'Get-DriveMediaInfo'
 Assert-True (Test-Path function:Test-PathWhitelisted) 'Test-PathWhitelisted'
@@ -20,7 +20,29 @@ Assert-True (Test-Path function:Request-Cancel) 'Request-Cancel'
 Assert-True (Test-Path function:Get-BloatPackageCandidates) 'Get-BloatPackageCandidates'
 Assert-True (Test-Path function:Write-ProgressLine) 'Write-ProgressLine'
 Assert-True (Test-Path function:Get-HighRiskActionIds) 'Get-HighRiskActionIds'
+Assert-True (Test-Path function:Invoke-WithFallback) 'Invoke-WithFallback'
+Assert-True (Test-Path function:Invoke-ExternalChecked) 'Invoke-ExternalChecked'
+Assert-True (Test-Path function:Get-CompatibilityProfile) 'Get-CompatibilityProfile'
 Assert-True (Test-Path (Join-Path $root 'core\presets.json')) 'core/presets.json exists'
+
+$fallbackCalls = 0
+$fallbackValue = Invoke-WithFallback 'teste controlado' @(
+  { $script:fallbackCalls++; throw 'falha primaria simulada' },
+  { $script:fallbackCalls++; return 42 }
+)
+Assert-True ($fallbackValue -eq 42 -and $fallbackCalls -eq 2) 'fallback uses alternate method after failure'
+$allFallbacksFailed = $false
+try { $null = Invoke-WithFallback 'teste sem saida' @({ throw 'a' }, { throw 'b' }) } catch { $allFallbacksFailed = $_.Exception.Message -match 'nenhum metodo funcionou' }
+Assert-True $allFallbacksFailed 'fallback reports failure when every method fails'
+$checkedExitOk = $false
+try { $null = Invoke-ExternalChecked 'powershell.exe' @('-NoProfile','-Command','exit 0') @(0) 'subprocesso teste'; $checkedExitOk = $true } catch {}
+Assert-True $checkedExitOk 'external command accepts declared success code'
+$checkedExitFails = $false
+try { $null = Invoke-ExternalChecked 'powershell.exe' @('-NoProfile','-Command','exit 7') @(0) 'subprocesso teste' } catch { $checkedExitFails = $_.Exception.Message -match 'codigo 7' }
+Assert-True $checkedExitFails 'external command rejects undeclared exit code'
+$compat = Get-CompatibilityProfile
+Assert-True (-not [string]::IsNullOrWhiteSpace($compat.Build)) 'compatibility profile has Windows build'
+Assert-True (-not [string]::IsNullOrWhiteSpace($compat.PowerShell)) 'compatibility profile has PowerShell version'
 
 Import-Whitelist
 Assert-True ($script:Whitelist.Count -ge 1) 'whitelist has defaults'

@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Linux-Bash-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux">
   <img src="https://img.shields.io/badge/macOS-Bash-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Android-Termux-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
-  <img src="https://img.shields.io/badge/v5.6.1-Visual%20Consistency-0d9488?style=for-the-badge" alt="v5.6.1">
+  <img src="https://img.shields.io/badge/v5.7.0-Resilient%20Engine-0d9488?style=for-the-badge" alt="v5.7.0">
   <img src="https://img.shields.io/badge/Licença-MIT-22c55e?style=for-the-badge" alt="MIT">
 </p>
 
@@ -39,6 +39,29 @@ Detalhes: [`core/README.md`](core/README.md) · [`core/SECURITY.md`](core/SECURI
 ---
 
 ## Comece rápido
+
+### Compatibilidade e nível de suporte
+
+| Plataforma | Suporte | Estratégia |
+|---|---|---|
+| Windows 11 / Windows 10 | Principal | GUI nativa + PowerShell 5.1; detecção de build, CIM/WMI, cmdlets e executáveis do sistema |
+| Windows Server com Desktop Experience | Compatível por capacidade | CLI recomendada; recursos ausentes são identificados e não são declarados como concluídos |
+| Linux | Módulo próprio | Bash; detecta apt, dnf, pacman e zypper, sem aplicar comandos Windows |
+| macOS | Módulo próprio | Bash e ferramentas nativas; Homebrew é opcional |
+| Android / Termux | Escopo limitado | Atua somente dentro do sandbox do Termux; não promete limpeza global do Android |
+| iOS / iPadOS | Não suportado | O sistema não concede acesso necessário a um otimizador desse tipo |
+
+“Compatível” não significa executar a mesma receita em todo computador. O motor seleciona somente capacidades presentes, tenta alternativas previamente aprovadas e verifica o resultado. Uma ação bloqueada por política, edição do Windows, antivírus, hardware ou permissão é reportada como indisponível ou falha — nunca como sucesso.
+
+### Política de resiliência
+
+1. Detectar sistema, build, arquitetura, privilégios e comandos disponíveis.
+2. Validar pré-condições antes de alterar qualquer estado.
+3. Executar o método preferencial.
+4. Em falha recuperável, tentar um método alternativo seguro.
+5. Confirmar código de saída e pós-condição observável.
+6. Registrar cada tentativa, preservando a causa original.
+7. Falhar honestamente quando não houver método confiável.
 
 ### Windows (recomendado)
 
@@ -77,7 +100,16 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 
 ---
 
-## Novidades v5.6.1
+## Novidades v5.7.0
+
+- **Detecção de capacidades:** registra versão/build do Windows, PowerShell, arquitetura, elevação e ferramentas realmente disponíveis.
+- **Fallback controlado:** quando o método moderno falha, tenta uma alternativa compatível e registra qual método funcionou.
+- **Sucesso verificável:** comandos externos validam código de saída; planos de energia e alterações de Registro confirmam o estado final.
+- **Sem falso positivo:** se todas as alternativas falharem, a ação e o lote terminam como falha e o log explica cada tentativa.
+- **Compatibilidade legada segura:** inventário por CIM com fallback para WMI e, por último, APIs .NET sem inventar métricas ausentes.
+- **Adaptação por versão:** opções TCP removidas de versões novas são ignoradas individualmente com aviso; a configuração suportada continua.
+
+### Incluído desde v5.6.1
 
 - **Controle de simulação redesenhado:** componente retangular integrado ao visual dos painéis, com barra de estado, chave liga/desliga e realce ciano no hover, foco e estado ativo.
 - **Botões coerentes:** seletores PT/EN, ações dos cartões e botões das páginas agora compartilham borda, cantos, foco e hover do mesmo sistema visual.
@@ -205,8 +237,8 @@ powershell -ExecutionPolicy Bypass -File .\Compilar-EXE.ps1
 ```
 
 ```bash
-git tag v5.6.1
-git push origin v5.6.1
+git tag v5.7.0
+git push origin v5.7.0
 # Actions: testes Windows + smoke Bash → ZIP + SHA256SUMS.txt
 ```
 

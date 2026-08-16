@@ -1,4 +1,4 @@
-PC OTIMIZADOR PRO v5.6.1
+PC OTIMIZADOR PRO v5.7.0
 ======================
 Executar.bat (Admin)  ou  G = GUI dashboard
 
