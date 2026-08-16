@@ -4,7 +4,7 @@
 # Sem root NAO limpa cache de outros apps nem "otimiza o telefone inteiro".
 set -u
 
-VERSION="5.3-android-termux"
+VERSION="5.5-android-termux"
 DRY_RUN=0
 AUTO_YES=0
 LOG_DIR="${HOME}/.pc-otimizador-logs"
@@ -51,6 +51,12 @@ human_kb() {
 safe_clean_dir() {
   local p="$1"
   [[ -e "$p" ]] || return 0
+  [[ -L "$p" ]] && { log "Ignorado (symlink): $p" WARN; return 0; }
+  case "$p" in
+    /data/data/*/files/*|/data/user/0/*/files/*) ;;
+    *) log "Alvo recusado: fora do sandbox Termux: $p" WARN; return 0 ;;
+  esac
+  [[ "$p" == "$HOME" || "$p" == "$PREFIX" ]] && { log "Ignorado (raiz do sandbox): $p" WARN; return 0; }
   case "$p" in
     /sdcard/DCIM*|/sdcard/Download*|/sdcard/Pictures*|/storage/*/DCIM*|/storage/*/Download*)
       log "Protegido (midia/downloads): $p" WARN; return 0 ;;
@@ -65,8 +71,11 @@ safe_clean_dir() {
   else
     rm -f "$p" 2>/dev/null || true
   fi
-  FREED_KB=$((FREED_KB + kb))
-  log "Limpo: $p (~$(human_kb "$kb"))"
+  local after delta
+  after="$(kb_of "$p")"
+  delta=$(( kb - after )); (( delta < 0 )) && delta=0
+  FREED_KB=$((FREED_KB + delta))
+  log "Limpo: $p (~$(human_kb "$delta"))"
 }
 
 init_log() {
@@ -97,8 +106,7 @@ act_apt() {
   if ! command -v apt >/dev/null; then return 0; fi
   if (( DRY_RUN == 1 )); then log "[DRY-RUN] apt clean && autoremove"; return 0; fi
   apt clean 2>/dev/null || true
-  apt autoremove -y 2>/dev/null || true
-  log "apt clean/autoremove"
+  log "apt clean"
 }
 
 act_pip() {
@@ -144,12 +152,12 @@ run_safe() {
   log "Escopo: apenas Termux (sandbox). Sem root = sem limpeza global do Android."
   local ids=( $(preset_ids safe) )
   local total=${#ids[@]} i=0 id
+  local cancelled=0
   for id in "${ids[@]}"; do
     if cancel_requested; then
       log "Cancelado pelo usuario" WARN
-      printf '##DONE##|cancelled\n'
-      finish_log
-      return 1
+      cancelled=1
+      break
     fi
     i=$((i + 1))
     progress "$i" "$total" "$id"
@@ -157,6 +165,7 @@ run_safe() {
   done
   act_tips
   finish_log
+  if (( cancelled == 1 )); then printf '##DONE##|cancelled\n'; return 2; fi
   log "Concluido. Liberado~$(human_kb "$FREED_KB")"
 }
 
@@ -183,14 +192,14 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
     --yes|-y) AUTO_YES=1; shift ;;
-    --preset) shift 2 ;;
+    --preset) [[ $# -ge 2 ]] && shift 2 || { echo 'Falta valor para --preset' >&2; exit 2; } ;;
     --help|-h) echo "Uso: $0 [--dry-run] [--yes]"; exit 0 ;;
     *) shift ;;
   esac
 done
 
 if (( AUTO_YES == 1 )); then
-  run_safe; exit 0
+  run_safe; exit $?
 fi
 
 while true; do

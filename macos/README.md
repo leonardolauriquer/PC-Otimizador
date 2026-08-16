@@ -9,6 +9,6 @@ chmod +x pc-otimizador.sh
 ./pc-otimizador.sh --mode health
 ```
 
-Limpa: temp, Lixeira, caches regeneráveis, Homebrew cache, DNS.  
+Limpa: temporários antigos do usuário, Lixeira, caches regeneráveis, Homebrew cache, DNS.
 **Não** apaga Documents/Pictures/Downloads/Desktop.  
 Logs: `~/Library/Application Support/PC-Otimizador/logs/`

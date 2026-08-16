@@ -8,8 +8,9 @@ Este diretório é a **fonte da verdade** dos presets e da política de risco.
 | `load_preset.py` | Helper para adapters Bash (`python3 core/load_preset.py linux safe`) |
 | `SECURITY.md` | Regras de segurança multiplataforma |
 
-- **Windows:** `Engine.ps1` → `Get-PresetIds` / `Get-HighRiskActionIds` leem o JSON.
+- **Windows:** `Engine.ps1` → `Get-PresetIds` / `Get-HighRiskActionIds` leem o JSON e o Engine bloqueia alto risco sem capability.
 - **Linux/macOS:** `preset_ids()` chama `load_preset.py` com fallback embutido.
 - **iOS:** sem limpeza de sistema (ver `ios/README.md`).
 
 Não misture scripts Windows e Unix no mesmo executável.
+Os adapters usam o JSON como catálogo de IDs; os alvos reais continuam sujeitos à allowlist local de cada sistema.

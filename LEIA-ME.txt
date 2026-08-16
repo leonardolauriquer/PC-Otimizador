@@ -7,5 +7,6 @@ Ao abrir: verifica a ultima versao no GitHub e ATUALIZA SOZINHO
 
 1 Limpeza Segura ★   |  8 Dry-run  |  ? Ajuda  |  G Interface
 
-Nao apaga Documentos/Fotos/Downloads/Musica/OneDrive.
+Limpeza Segura nao esvazia a Lixeira nem executa CleanMgr.
+Documentos/Fotos/Downloads/Musica/OneDrive ficam fora da allowlist de limpeza.
 Logs: Documentos\PC-Otimizador-Logs

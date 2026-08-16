@@ -16,7 +16,7 @@
 <p align="center">
   <b>Limpeza e otimização segura — monorepo multiplataforma</b><br>
   Windows · Linux · macOS · Android (Termux) · iOS (só documentação honesta)<br>
-  <i>Não apaga Documentos, Fotos, Downloads, Desktop, favoritos ou senhas.</i>
+  <i>Não percorre pastas pessoais; a Lixeira e ações avançadas exigem confirmação explícita.</i>
 </p>
 
 ---
@@ -81,8 +81,8 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 
 | Recurso | Descrição |
 |---------|-----------|
-| **Auto-update obrigatório** | Ao abrir (`Executar.bat` / `.exe`) consulta o GitHub e atualiza sozinho |
-| **SHA256** | Valida o ZIP da Release antes de aplicar |
+| **Auto-update validado** | Ao abrir (`Executar.bat` / `.exe`) consulta o GitHub e atualiza quando há release válida |
+| **SHA256 obrigatório** | Recusa releases sem `SHA256SUMS.txt` ou com hash inválido |
 
 ---
 
@@ -154,12 +154,12 @@ R Remover agenda     H Health   W Whitelist   B Bloat   G GUI   0 Sair
 
 ## Segurança
 
-- Whitelist: Documentos, Fotos, Vídeos, Música, Desktop, Downloads, OneDrive  
+- Allowlist de caches; raízes, ancestrais e reparse points são recusados
 - Boundary-safe (prefixo com separador de pasta)  
 - Dry-run e estimativa antes de limpar  
-- DNS / plano de energia / renovar IP = confirmação explícita  
+- DNS / plano de energia / renovar IP / Lixeira / CleanMgr = confirmação explícita
 - Mobile: só sandbox permitido (Termux / docs iOS)  
-- Release com testes + SHA256; Authenticode opcional — use `.bat` se o AV reclamar  
+- Release com testes + SHA256 obrigatório; Authenticode recomendado para distribuição
 
 ---
 

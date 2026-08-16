@@ -3,13 +3,14 @@
 # Seguro: nao apaga Documents/Pictures/Downloads/Desktop.
 set -u
 
-VERSION="5.3-macos"
+VERSION="5.5-macos"
 DRY_RUN=0
 AUTO_YES=0
 LANG_UI="${LANG_UI:-pt}"
 LOG_DIR="${HOME}/Library/Application Support/PC-Otimizador/logs"
 WHITELIST_FILE="${LOG_DIR}/whitelist.txt"
 CANCEL_FILE="${TMPDIR:-/tmp}/pc-otimizador-cancel.flag"
+TMP_ROOT="${TMPDIR:-/tmp}"
 SESSION_LOG=""
 FREED_KB=0
 
@@ -103,6 +104,11 @@ human_kb() {
 safe_rm_tree() {
   local p="$1"
   [[ -e "$p" ]] || return 0
+  [[ -L "$p" ]] && { log "Ignorado (symlink): $p" WARN; return 0; }
+  case "$p" in
+    /tmp/*|"$TMP_ROOT"/*|"$HOME"/.Trash/*|"$HOME"/Library/Caches/*|"$HOME"/Library/Logs/DiagnosticReports/*) ;;
+    *) log "Alvo recusado pela allowlist: $p" WARN; return 0 ;;
+  esac
   if is_protected "$p"; then log "Whitelist: protegido $p" WARN; return 0; fi
   local kb; kb="$(kb_of_path "$p")"
   if (( DRY_RUN == 1 )); then
@@ -114,8 +120,34 @@ safe_rm_tree() {
   else
     rm -f "$p" 2>/dev/null || true
   fi
-  FREED_KB=$((FREED_KB + kb))
-  log "Limpo: $p (~$(human_kb "$kb"))"
+  local after delta
+  after="$(kb_of_path "$p")"
+  delta=$(( kb - after )); (( delta < 0 )) && delta=0
+  FREED_KB=$((FREED_KB + delta))
+  log "Limpo: $p (~$(human_kb "$delta"))"
+}
+
+clean_owned_tmp() {
+  local base item uid
+  uid="$(id -u)"
+  for base in /tmp "$TMP_ROOT"; do
+    [[ -d "$base" ]] || continue
+    while IFS= read -r -d '' item; do
+      safe_rm_tree "$item"
+    done < <(find "$base" -mindepth 1 -maxdepth 1 -user "$uid" -mtime +1 -print0 2>/dev/null)
+  done
+}
+
+owned_tmp_kb() {
+  local base item total=0 uid
+  uid="$(id -u)"
+  for base in /tmp "$TMP_ROOT"; do
+    [[ -d "$base" ]] || continue
+    while IFS= read -r -d '' item; do
+      total=$(( total + $(kb_of_path "$item") ))
+    done < <(find "$base" -mindepth 1 -maxdepth 1 -user "$uid" -mtime +1 -print0 2>/dev/null)
+  done
+  echo "$total"
 }
 
 disk_free_gb() { df -g / 2>/dev/null | awk 'NR==2{print $4}'; }
@@ -138,7 +170,7 @@ mem_used_pct() {
 health_score() {
   local score=100 used junk
   used="$(disk_used_pct)"; used=${used:-50}
-  junk=$(( $(kb_of_path "$HOME/Library/Caches") + $(kb_of_path /tmp) ))
+  junk=$(( $(kb_of_path "$HOME/Library/Caches") + $(owned_tmp_kb) ))
   (( used >= 95 )) && score=$((score - 40))
   (( used >= 85 && used < 95 )) && score=$((score - 25))
   (( used >= 75 && used < 85 )) && score=$((score - 15))
@@ -155,8 +187,7 @@ health_score() {
 }
 
 act_temp() {
-  safe_rm_tree /tmp
-  safe_rm_tree "$TMPDIR"
+  clean_owned_tmp
   safe_rm_tree "$HOME/Library/Caches/com.apple.thumbnails.cache"
 }
 
@@ -213,9 +244,10 @@ act_purge_ram_hint() {
 
 estimate_kb() {
   local t=0 p
-  for p in /tmp "$HOME/.Trash" "$HOME/Library/Caches/Homebrew" "$HOME/Library/Caches/Google/Chrome"; do
+  for p in "$HOME/.Trash" "$HOME/Library/Caches/Homebrew" "$HOME/Library/Caches/Google/Chrome"; do
     t=$(( t + $(kb_of_path "$p") ))
   done
+  t=$(( t + $(owned_tmp_kb) ))
   echo "$t"
 }
 
@@ -265,6 +297,7 @@ run_preset() {
   local name="$1"
   local ids=( $(preset_ids "$name") )
   local total=${#ids[@]} i=0 id
+  local cancelled=0
   FREED_KB=0
   reset_cancel
   init_log
@@ -274,7 +307,7 @@ run_preset() {
   printf '##RESULT##|BEFORE|%s\n' "$before"
   log "Estimativa amostra: $(human_kb "$(estimate_kb)")"
   for id in "${ids[@]}"; do
-    cancel_requested && { log "Cancelado" WARN; break; }
+    cancel_requested && { log "Cancelado" WARN; cancelled=1; break; }
     i=$((i+1))
     progress "$i" "$total" "$(action_name "$id")"
     run_action "$id"
@@ -285,6 +318,7 @@ run_preset() {
   log "$summary"
   finish_log "$summary"
   printf '##RESULT##|AFTER|%s|%s|%s\n' "$after" "$FREED_KB" "$score"
+  if (( cancelled == 1 )); then printf '##DONE##|CANCELLED\n'; return 2; fi
   printf '##DONE##|OK\n'
 }
 
@@ -331,8 +365,8 @@ show_preset() {
 PRESET=""; MODE="menu"
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --preset) PRESET="$2"; shift 2 ;;
-    --mode) MODE="$2"; shift 2 ;;
+    --preset) [[ $# -ge 2 ]] && { PRESET="$2"; shift 2; } || { echo 'Falta valor para --preset' >&2; exit 2; } ;;
+    --mode) [[ $# -ge 2 ]] && { MODE="$2"; shift 2; } || { echo 'Falta valor para --mode' >&2; exit 2; } ;;
     --dry-run) DRY_RUN=1; shift ;;
     --yes|-y) AUTO_YES=1; shift ;;
     --help|-h) echo "Uso: $0 [--preset safe|gamer|net|full|notebook] [--dry-run] [--yes] [--mode health|scan]"; exit 0 ;;

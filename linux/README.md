@@ -29,18 +29,18 @@ Presets diretos:
 
 | Ação | Detalhe |
 |------|---------|
-| Temp | `/tmp`, `/var/tmp`, thumbnails |
+| Temp | Itens antigos do usuário em `/tmp` e `/var/tmp`, thumbnails |
 | Lixeira | `~/.local/share/Trash` |
 | Cache usuário | só caches regeneráveis (mesa, browser cache, etc.) |
 | Journal | `journalctl --vacuum-time=7d` |
-| Pacotes | `apt clean` / `dnf clean` / `pacman -Sc` |
+| Pacotes | `apt clean` / `dnf clean all` / `pacman -Sc` (sem autoremove) |
 | DNS | `resolvectl flush-caches` |
 | Flatpak/Snap | unused / revisões antigas |
 | TRIM | `fstrim -av` (SSD) |
 
 ## O que **não** faz
 
-- Não apaga `Documents`, `Pictures`, `Downloads`, `Desktop` (whitelist)
+- Não percorre `Documents`, `Pictures`, `Downloads`, `Desktop` (allowlist de alvos)
 - Não formata disco
 - Não remove seus projetos em `~/`
 

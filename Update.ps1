@@ -69,6 +69,19 @@ function Test-Sha256([string]$FilePath, [string]$ExpectedHex) {
   return ($h -eq $ExpectedHex.ToLowerInvariant())
 }
 
+function Test-ZipEntriesSafe([string]$Destination, $Zip) {
+  $base = ([IO.Path]::GetFullPath($Destination)).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
+  foreach ($entry in $Zip.Entries) {
+    $name = [string]$entry.FullName
+    if (-not $name -or $name -match '^[\\/]' -or $name -match '^[A-Za-z]:' -or $name -match '(^|[\\/])\.\.([\\/]|$)') { return $false }
+    try { $candidate = [IO.Path]::GetFullPath((Join-Path $Destination $name)) } catch { return $false }
+    if (-not $candidate.StartsWith($base, [StringComparison]::OrdinalIgnoreCase) -and
+        -not [string]::Equals($candidate, $base.TrimEnd([IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) { return $false }
+    if ($entry.Length -gt 524288000) { return $false }
+  }
+  return $true
+}
+
 $local = Get-LocalVersion
 Write-U ("Versao local: {0}" -f $local)
 
@@ -103,40 +116,41 @@ if (-not $zipAsset) {
   exit 2
 }
 
-$work = Join-Path $env:TEMP ("pc-otimizador-update-{0}" -f $remote)
+$updateBase = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'PC-Otimizador\updates'
+$safeRemote = ($remote -replace '[^0-9A-Za-z._-]', '_')
+$work = Join-Path $updateBase ("{0}-{1}" -f $safeRemote, [guid]::NewGuid().ToString('N'))
 $zipPath = Join-Path $work 'PC-Otimizador-Windows.zip'
 $sumPath = Join-Path $work 'SHA256SUMS.txt'
 $extract = Join-Path $work 'extract'
 
 try {
-  if (Test-Path $work) { Remove-Item $work -Recurse -Force -EA SilentlyContinue }
+  New-Item -ItemType Directory -Path $updateBase -Force | Out-Null
   New-Item -ItemType Directory -Path $work -Force | Out-Null
+  & icacls.exe $work /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)(F)' '*S-1-5-32-544:(OI)(CI)(F)' /setintegritylevel H | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel proteger o staging da atualizacao.' }
   New-Item -ItemType Directory -Path $extract -Force | Out-Null
 
   Write-U 'Baixando pacote...'
   Invoke-WebRequest -Uri $zipAsset.browser_download_url -OutFile $zipPath -UseBasicParsing -TimeoutSec 180
 
-  $expected = $null
-  if ($sumAsset) {
-    Write-U 'Baixando SHA256SUMS...'
-    Invoke-WebRequest -Uri $sumAsset.browser_download_url -OutFile $sumPath -UseBasicParsing -TimeoutSec 60
-    $line = Get-Content $sumPath | Where-Object { $_ -match 'PC-Otimizador-Windows\.zip' } | Select-Object -First 1
-    if ($line -match '^([a-fA-F0-9]{64})') { $expected = $Matches[1] }
-  }
-
-  if ($expected) {
-    Write-U 'Verificando SHA256...'
-    if (-not (Test-Sha256 $zipPath $expected)) {
-      Write-U 'HASH INVALIDO — abortando atualizacao.' 'Red'
-      exit 2
-    }
-    Write-U 'SHA256 OK.' 'Green'
-  } else {
-    Write-U 'Aviso: release sem SHA256SUMS — seguindo mesmo assim.' 'Yellow'
-  }
+  if (-not $sumAsset) { throw 'Release sem SHA256SUMS; atualizacao recusada.' }
+  Write-U 'Baixando SHA256SUMS...'
+  Invoke-WebRequest -Uri $sumAsset.browser_download_url -OutFile $sumPath -UseBasicParsing -TimeoutSec 60
+  $line = Get-Content $sumPath | Where-Object { $_ -match '^\s*[a-fA-F0-9]{64}\s+[* ]?PC-Otimizador-Windows\.zip\s*$' } | Select-Object -First 1
+  $expected = if ($line -match '^\s*([a-fA-F0-9]{64})') { $Matches[1] } else { $null }
+  if (-not $expected) { throw 'SHA256SUMS sem hash valido do pacote.' }
+  Write-U 'Verificando SHA256...'
+  if (-not (Test-Sha256 $zipPath $expected)) { throw 'HASH INVALIDO — abortando atualizacao.' }
+  Write-U 'SHA256 OK.' 'Green'
 
   Write-U 'Extraindo...'
   Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $zip = [IO.Compression.ZipFile]::OpenRead($zipPath)
+  if (-not (Test-ZipEntriesSafe -Destination $extract -Zip $zip)) {
+    $zip.Dispose()
+    throw 'Pacote rejeitado: entrada ZIP fora do staging ou grande demais.'
+  }
+  $zip.Dispose()
   [IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extract)
 
   # Se o zip tiver pasta unica, descer um nivel
@@ -146,9 +160,13 @@ try {
     $src = $children[0].FullName
   }
 
-  if (-not (Test-Path (Join-Path $src 'Engine.ps1')) -and -not (Test-Path (Join-Path $src 'PC-Otimizador-CLI.ps1'))) {
-    Write-U 'Pacote invalido (faltam Engine/CLI).' 'Red'
-    exit 2
+  $required = @('Executar.bat','Engine.ps1','PC-Otimizador-CLI.ps1','PC-Otimizador.exe','Update.ps1','VERSION','core\presets.json')
+  foreach ($file in $required) {
+    if (-not (Test-Path -LiteralPath (Join-Path $src $file))) { throw "Pacote invalido (faltando $file)." }
+  }
+  $packageVersion = ((Get-Content -LiteralPath (Join-Path $src 'VERSION') -Raw) -replace '[^\d\.]','').Trim()
+  if ((Compare-Version $packageVersion $remote) -ne 0) {
+    throw "VERSION do pacote ($packageVersion) nao corresponde a release ($remote)."
   }
 
   if (-not $Relaunch) {
@@ -159,7 +177,7 @@ try {
     else { $Relaunch = $bat }
   }
 
-  $apply = Join-Path $env:TEMP 'pc-otimizador-apply-update.cmd'
+  $apply = Join-Path $work 'apply-update.cmd'
   $srcEsc = $src
   $dstEsc = $Root
   $relaunchEsc = $Relaunch
@@ -167,7 +185,7 @@ try {
   $cmd = @"
 @echo off
 setlocal
-echo PC Otimizador — aplicando atualizacao $remote ...
+echo PC Otimizador — aplicando atualizacao $safeRemote ...
 timeout /t 3 /nobreak >nul
 :wait_exe
 tasklist | find /I "PC-Otimizador.exe" >nul
@@ -175,16 +193,21 @@ if not errorlevel 1 (
   timeout /t 1 /nobreak >nul
   goto wait_exe
 )
-echo Copiando arquivos...
-xcopy /E /Y /Q /I "$srcEsc\*" "$dstEsc\" >nul
-if exist "$dstEsc\VERSION" (
-  echo Atualizado. VERSION:
-  type "$dstEsc\VERSION"
-)
-start "" "$relaunchEsc"
-timeout /t 1 /nobreak >nul
-rd /s /q "$work" >nul 2>nul
-del "%~f0" >nul 2>nul
+  echo Copiando arquivos...
+  xcopy /E /Y /Q /I "$srcEsc\*" "$dstEsc\" >nul
+  if errorlevel 2 goto copy_failed
+  if exist "$dstEsc\VERSION" (
+    echo Atualizado. VERSION:
+    type "$dstEsc\VERSION"
+  )
+  start "" "$relaunchEsc"
+  timeout /t 1 /nobreak >nul
+  rd /s /q "$work" >nul 2>nul
+  del "%~f0" >nul 2>nul
+  exit /b 0
+:copy_failed
+  echo Falha ao copiar o pacote; instalacao nao confirmada.
+  exit /b 1
 "@
   Set-Content -LiteralPath $apply -Value $cmd -Encoding ASCII
 

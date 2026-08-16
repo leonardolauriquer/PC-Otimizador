@@ -6,23 +6,36 @@
       "Documents", "Documentos", "Pictures", "Fotos", "Imagens",
       "Videos", "Music", "Musica", "Desktop", "Downloads", "OneDrive"
     ],
-    "requires_confirmation_for": ["bloat", "upgrade_leftovers", "advanced", "dnscloud", "powerhigh", "renewip"],
+    "requires_confirmation_for": ["bloat", "upgrade", "advanced", "recycle", "prefetch", "winsock", "tcpip", "dnscloud", "dnsgoogle", "powerhigh", "renewip"],
     "mobile_note": "On mobile, only clean what the OS sandbox allows (own app / Termux home). No system-wide wipe."
   },
   "risk_actions": {
     "dnscloud": "high",
+    "dnsgoogle": "high",
     "powerhigh": "high",
     "renewip": "high",
+    "recycle": "high",
+    "upgrade": "high",
+    "prefetch": "high",
+    "winsock": "high",
+    "tcpip": "high",
+    "cleanmgr": "high",
+    "bloat": "high",
     "nagle": "medium",
     "nettweak": "medium",
-    "bloat": "high"
+    "browser": "medium",
+    "apps": "medium",
+    "dismcleanup": "medium",
+    "visual": "medium",
+    "sfc": "medium",
+    "dismrestore": "medium"
   },
   "windows": {
-    "safe": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "cleanmgr", "dismcleanup", "trim", "storage", "tips", "dns", "arp", "netbios"],
+    "safe": ["restore", "temp", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "trim", "storage", "tips", "dns", "arp", "netbios"],
     "gamer": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "gpu", "apps", "trim", "tips", "gamebar", "gamemode", "bgapps", "widgets", "powerhigh", "dns", "arp", "nettweak", "nagle", "dnscloud"],
     "net": ["restore", "dns", "arp", "netbios", "nettweak", "renewip", "dnscloud"],
     "full": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "cleanmgr", "dismcleanup", "browser", "gpu", "apps", "store", "trim", "storage", "tips", "visual", "bgapps", "widgets", "searchweb", "gamebar", "gamemode", "dns", "arp", "netbios"],
-    "notebook": ["restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "cleanmgr", "trim", "storage", "tips", "powerbal", "bgapps", "widgets", "dns", "arp", "netbios"]
+    "notebook": ["restore", "temp", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "trim", "storage", "tips", "powerbal", "bgapps", "widgets", "dns", "arp", "netbios"]
   },
   "linux": {
     "safe": ["temp", "trash", "cache", "journal", "pkg", "dns"],

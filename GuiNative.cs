@@ -333,7 +333,7 @@ namespace PCOtimizador
                     WorkingDirectory = _root,
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
-                    RedirectStandardError = true,
+                    RedirectStandardError = false,
                     CreateNoWindow = true,
                     StandardOutputEncoding = Encoding.UTF8
                 };
@@ -490,7 +490,7 @@ namespace PCOtimizador
             page.Controls.Add(MakePresetCard(0, 0, 190, 150,
                 "LIMPEZA SEGURA", "Ideal para manter o PC limpo e protegido.", "SAFE", Accent,
                 () => RunPreset("safe", false),
-                "Recomendado. Temp, lixeira, caches. Não muda DNS/energia."));
+                "Recomendado. Temp e caches regeneráveis. Não esvazia a Lixeira."));
 
             page.Controls.Add(MakePresetCard(206, 0, 190, 150,
                 "TURBO GAMER", "Máximo desempenho para jogos e tarefas pesadas.", "RISK", Danger,
@@ -518,7 +518,7 @@ namespace PCOtimizador
 
             int x = 0;
             page.Controls.Add(SmallAction(ref x, 200, "Estimar", () => RunCli("-Mode scan -AutoYes"), "Só mede quanto espaço liberaria."));
-            page.Controls.Add(SmallAction(ref x, 200, "Completo", () => RunPreset("full", false), "Limpeza ampla (mais demorada)."));
+             page.Controls.Add(SmallAction(ref x, 200, "Completo", () => RunPreset("full", true), "Limpeza ampla; inclui ações irreversíveis."));
             page.Controls.Add(SmallAction(ref x, 200, "Agendar", () => ScheduleWeekly(), "Limpeza Segura todo domingo 10h."));
             page.Controls.Add(SmallAction(ref x, 200, "Whitelist", () => RunCli("-Mode whitelist -AutoYes"), "Pastas que nunca serão apagadas."));
             page.Controls.Add(SmallAction(ref x, 200, "Logs", OpenLogsFolder, "Abre Documentos\\PC-Otimizador-Logs."));
@@ -770,7 +770,7 @@ namespace PCOtimizador
                         WorkingDirectory = _root,
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
-                        RedirectStandardError = true,
+                         RedirectStandardError = false,
                         CreateNoWindow = true,
                         StandardOutputEncoding = Encoding.UTF8
                     };
@@ -829,11 +829,11 @@ namespace PCOtimizador
         {
             switch (name)
             {
-                case "safe": return "Limpeza Segura: temporários, lixeira, caches, TRIM.\nNão mexe em DNS/energia.";
+                case "safe": return "Limpeza Segura: temporários, caches e TRIM.\nNão esvazia a Lixeira nem mexe em DNS/energia.";
                 case "gamer": return "Turbo/Gamer: limpeza + alto desempenho + possíveis ajustes de DNS/rede.";
                 case "net": return "Internet: flush DNS/ARP; pode renovar IP e DNS Cloudflare.";
                 case "notebook": return "Notebook: limpeza segura + plano equilibrado (bateria).";
-                case "full": return "Completo: limpeza ampla incluindo caches de apps/navegador.";
+                case "full": return "Completo: limpeza ampla incluindo CleanMgr, lixeira e caches de apps/navegador.";
                 default: return "Perfil: " + name;
             }
         }
@@ -890,6 +890,7 @@ namespace PCOtimizador
                     _proc.BeginOutputReadLine();
                     _proc.BeginErrorReadLine();
                     _proc.WaitForExit();
+                    int exitCode = _proc.ExitCode;
                     BeginInvoke(new Action(() =>
                     {
                         if (IsDisposed || !IsHandleCreated) return;
@@ -901,6 +902,13 @@ namespace PCOtimizador
                             _taskLabel.Text = "Cancelado";
                             _pctLabel.ForeColor = Warn;
                             LogLine("Execução cancelada pelo usuário.");
+                        }
+                        else if (exitCode != 0)
+                        {
+                            _taskLabel.Text = "Falhou (código " + exitCode + ")";
+                            _pctLabel.ForeColor = Danger;
+                            LogLine("CLI terminou com código " + exitCode + ".");
+                            MessageBox.Show("A operação não foi concluída. Consulte o log para detalhes.", "PC Otimizador", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         }
                         else
                         {
@@ -971,9 +979,9 @@ namespace PCOtimizador
                     string score = p.Length > 8 ? p[8] : "—";
                     _beforeAfter.Text =
                         "ANTES  " + _diskFree + " GB  →  DEPOIS  " + p[2] + " GB livres\n" +
-                        "Liberado ~" + freed + " MB   |   RAM " + p[4] + "/" + p[5] + " GB";
+                        (_dry.Checked ? "Estimado ~" : "Liberado ~") + freed + " MB   |   RAM " + p[4] + "/" + p[5] + " GB";
                     _healthLabel.Text = "Health\n" + score + "/100";
-                    LogLine("Resultado: +" + freed + " MB | Health " + score);
+                    LogLine((_dry.Checked ? "Estimativa: ~" : "Resultado: +") + freed + " MB | Health " + score);
                 }
                 return;
             }

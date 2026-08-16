@@ -54,7 +54,7 @@ function Get-OptCatalog {
   @(
     @{ Id='restore'; Cat='maint'; Name='Criar ponto de restauracao'; Hint='Seguranca antes de mudar o sistema'; Risk='safe'; Action={ Invoke-RestorePoint } }
     @{ Id='temp'; Cat='limpeza'; Name='Arquivos temporarios'; Hint='Temp do usuario e do Windows'; Risk='safe'; Action={ Invoke-CleanTemp } }
-    @{ Id='recycle'; Cat='limpeza'; Name='Esvaziar Lixeira'; Hint='Remove itens da Lixeira'; Risk='safe'; Action={ Invoke-CleanRecycleBin } }
+    @{ Id='recycle'; Cat='limpeza'; Name='Esvaziar Lixeira (irreversivel)'; Hint='Remove itens da Lixeira'; Risk='advanced'; Action={ Invoke-CleanRecycleBin } }
     @{ Id='update'; Cat='limpeza'; Name='Cache Windows Update'; Hint='Downloads de update ja aplicados'; Risk='safe'; Action={ Invoke-CleanUpdateCache } }
     @{ Id='delivery'; Cat='limpeza'; Name='Delivery Optimization'; Hint='Cache P2P de atualizacoes'; Risk='safe'; Action={ Invoke-CleanDeliveryOptimization } }
     @{ Id='thumbs'; Cat='limpeza'; Name='Miniaturas e icones'; Hint='Recria caches do Explorer'; Risk='safe'; Action={ Invoke-CleanThumbnails } }
@@ -62,7 +62,7 @@ function Get-OptCatalog {
     @{ Id='logs'; Cat='limpeza'; Name='Logs do Windows'; Hint='CBS / DISM / WindowsUpdate'; Risk='safe'; Action={ Invoke-CleanLogs } }
     @{ Id='recent'; Cat='limpeza'; Name='Atalhos recentes'; Hint='So atalhos, nao apaga arquivos'; Risk='safe'; Action={ Invoke-CleanRecent } }
     @{ Id='font'; Cat='limpeza'; Name='Cache de fontes'; Hint='Reinicia FontCache'; Risk='safe'; Action={ Invoke-CleanFontCache } }
-    @{ Id='cleanmgr'; Cat='limpeza'; Name='Limpeza de Disco (cleanmgr)'; Hint='Ferramenta oficial Microsoft'; Risk='safe'; Action={ Invoke-CleanMgr } }
+    @{ Id='cleanmgr'; Cat='limpeza'; Name='Limpeza de Disco (perfil temporario)'; Hint='Pode remover categorias irreversiveis'; Risk='advanced'; Action={ Invoke-CleanMgr } }
     @{ Id='dismcleanup'; Cat='limpeza'; Name='DISM Component Cleanup'; Hint='Remove componentes antigos (demora)'; Risk='caution'; Action={ Invoke-DismCleanup } }
     @{ Id='browser'; Cat='limpeza'; Name='Cache de navegadores'; Hint='Favoritos e senhas preservados'; Risk='caution'; Action={ Invoke-CleanBrowserCaches } }
     @{ Id='gpu'; Cat='limpeza'; Name='Cache GPU / shaders'; Hint='DirectX / NVIDIA / AMD / Intel'; Risk='safe'; Action={ Invoke-CleanGpuCache } }
@@ -84,7 +84,7 @@ function Get-OptCatalog {
     @{ Id='dns'; Cat='net'; Name='Flush DNS'; Hint='Limpa cache de nomes'; Risk='safe'; Action={ Invoke-FlushDNS } }
     @{ Id='arp'; Cat='net'; Name='Flush ARP'; Hint='Limpa tabela ARP'; Risk='safe'; Action={ Invoke-FlushARP } }
     @{ Id='netbios'; Cat='net'; Name='Limpar NetBIOS'; Hint='nbtstat -R / -RR'; Risk='safe'; Action={ Invoke-ClearNetBIOS } }
-    @{ Id='nettweak'; Cat='net'; Name='Tweaks TCP + throttling'; Hint='Autotuning e perfil multimedia'; Risk='safe'; Action={ Invoke-NetOptimizations } }
+    @{ Id='nettweak'; Cat='net'; Name='Tweaks TCP + throttling'; Hint='Autotuning e perfil multimedia'; Risk='caution'; Action={ Invoke-NetOptimizations } }
     @{ Id='renewip'; Cat='net'; Name='Renovar IP'; Hint='Pode cair a net alguns segundos'; Risk='caution'; Action={ Invoke-RenewIP } }
     @{ Id='dnscloud'; Cat='net'; Name='DNS Cloudflare 1.1.1.1'; Hint='Troca DNS das placas ativas'; Risk='caution'; Action={ Invoke-DnsCloudflare } }
     @{ Id='dnsgoogle'; Cat='net'; Name='DNS Google 8.8.8.8'; Hint='Alternativa ao Cloudflare'; Risk='caution'; Action={ Invoke-DnsGoogle } }
@@ -279,6 +279,11 @@ function Start-OptimizationRun {
     $actions[$id] = @{ Nome = $script:Checks[$id].Name; Act = $script:Checks[$id].Action }
   }
   $result = Invoke-OptimizationBatch -Ids $selected -Actions $actions -DryRun:$script:DryRunUi
+  if ($result.Blocked) {
+    [Windows.Forms.MessageBox]::Show('A seleção contém ações de alto risco. Use a CLI ou a GUI nativa para confirmar explicitamente.', 'Ação bloqueada', 'OK', 'Warning') | Out-Null
+    Show-Screen 'custom'
+    return
+  }
   $script:Progress.Value = 100
   $script:ProgressLbl.Text = '100%'
   $script:TaskLbl.Text = 'Concluido'

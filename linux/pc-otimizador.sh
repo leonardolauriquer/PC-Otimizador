@@ -4,7 +4,7 @@
 set -u
 # nao use set -e: limpeza continua mesmo se um passo falhar
 
-VERSION="5.3-linux"
+VERSION="5.5-linux"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DRY_RUN=0
 AUTO_YES=0
@@ -133,6 +133,11 @@ human_kb() {
 safe_rm_tree() {
   local p="$1"
   [[ -e "$p" ]] || return 0
+  [[ -L "$p" ]] && { log "Ignorado (symlink): $p" WARN; return 0; }
+  case "$p" in
+    /tmp/*|/var/tmp/*|"$HOME"/.cache/*|"$HOME"/.local/share/Trash/*|"$HOME"/.thumbnails/*|"$HOME"/.var/app/*/cache) ;;
+    *) log "Alvo recusado pela allowlist: $p" WARN; return 0 ;;
+  esac
   if is_protected "$p"; then
     log "Whitelist: protegido $p" WARN
     return 0
@@ -150,8 +155,34 @@ safe_rm_tree() {
   else
     rm -f "$p" 2>/dev/null || true
   fi
-  FREED_KB=$((FREED_KB + kb))
-  log "Limpo: $p (~$(human_kb "$kb"))"
+  local after delta
+  after="$(kb_of_path "$p")"
+  delta=$(( kb - after )); (( delta < 0 )) && delta=0
+  FREED_KB=$((FREED_KB + delta))
+  log "Limpo: $p (~$(human_kb "$delta"))"
+}
+
+clean_owned_tmp() {
+  local base item uid
+  uid="$(id -u)"
+  for base in /tmp /var/tmp; do
+    [[ -d "$base" ]] || continue
+    while IFS= read -r -d '' item; do
+      safe_rm_tree "$item"
+    done < <(find "$base" -mindepth 1 -maxdepth 1 -user "$uid" -mtime +1 -print0 2>/dev/null)
+  done
+}
+
+owned_tmp_kb() {
+  local base item total=0 uid
+  uid="$(id -u)"
+  for base in /tmp /var/tmp; do
+    [[ -d "$base" ]] || continue
+    while IFS= read -r -d '' item; do
+      total=$(( total + $(kb_of_path "$item") ))
+    done < <(find "$base" -mindepth 1 -maxdepth 1 -user "$uid" -mtime +1 -print0 2>/dev/null)
+  done
+  echo "$total"
 }
 
 need_sudo() {
@@ -190,7 +221,7 @@ health_score() {
   mem="$(mem_used_pct)"; mem=${mem:-50}
   junk=0
   junk=$((junk + $(kb_of_path "$HOME/.cache")))
-  junk=$((junk + $(kb_of_path /tmp)))
+   junk=$((junk + $(owned_tmp_kb)))
   (( used >= 95 )) && score=$((score - 40))
   (( used >= 85 && used < 95 )) && score=$((score - 25))
   (( used >= 75 && used < 85 )) && score=$((score - 15))
@@ -219,8 +250,7 @@ detect_pkg() {
 
 # ── actions ──────────────────────────────────────────────────────────────────
 act_temp() {
-  safe_rm_tree /tmp
-  safe_rm_tree /var/tmp
+  clean_owned_tmp
   # user temp caches (nao home inteiro)
   safe_rm_tree "$HOME/.cache/thumbnails"
   safe_rm_tree "$HOME/.thumbnails"
@@ -275,7 +305,6 @@ act_pkg_cache() {
     apt)
       if (( DRY_RUN == 1 )); then log "[DRY-RUN] apt-get clean && autoremove"; return 0; fi
       run_root apt-get clean -y 2>/dev/null || true
-      run_root apt-get autoremove -y 2>/dev/null || true
       ;;
     dnf)
       if (( DRY_RUN == 1 )); then log "[DRY-RUN] dnf clean all"; return 0; fi
@@ -331,10 +360,11 @@ act_trim() {
 estimate_safe_kb() {
   local total=0
   local p
-  for p in /tmp /var/tmp "$HOME/.cache/thumbnails" "$HOME/.thumbnails" \
+  for p in "$HOME/.cache/thumbnails" "$HOME/.thumbnails" \
            "$HOME/.local/share/Trash/files" "$HOME/.cache/mesa_shader_cache"; do
     total=$((total + $(kb_of_path "$p")))
   done
+  total=$((total + $(owned_tmp_kb)))
   echo "$total"
 }
 
@@ -408,8 +438,9 @@ run_preset() {
   est="$(estimate_safe_kb)"
   log "Estimativa aproximada (amostra): $(human_kb "$est")"
 
+  local cancelled=0
   for id in "${ids[@]}"; do
-    if cancel_requested; then log "$(t cancel)" WARN; break; fi
+    if cancel_requested; then log "$(t cancel)" WARN; cancelled=1; break; fi
     i=$((i + 1))
     progress "$i" "$total" "$(action_name "$id")"
     run_action "$id"
@@ -422,6 +453,7 @@ run_preset() {
   log "$summary"
   finish_log "$summary"
   printf '##RESULT##|AFTER|%s|%s|%s|%s|%s\n' "$free_after" "$FREED_KB" "$score" "$grade" "${SESSION_LOG}"
+  if (( cancelled == 1 )); then printf '##DONE##|CANCELLED\n'; return 2; fi
   printf '##DONE##|OK\n'
 }
 
@@ -484,8 +516,8 @@ PRESET=""
 MODE="menu"
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --preset) PRESET="$2"; shift 2 ;;
-    --mode) MODE="$2"; shift 2 ;;
+    --preset) [[ $# -ge 2 ]] && { PRESET="$2"; shift 2; } || { echo 'Falta valor para --preset' >&2; exit 2; } ;;
+    --mode) [[ $# -ge 2 ]] && { MODE="$2"; shift 2; } || { echo 'Falta valor para --mode' >&2; exit 2; } ;;
     --dry-run) DRY_RUN=1; shift ;;
     --yes|-y) AUTO_YES=1; shift ;;
     --en) LANG_UI=en; shift ;;

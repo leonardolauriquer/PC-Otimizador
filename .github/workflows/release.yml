@@ -12,7 +12,7 @@ on:
         default: 'v5.5.0'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -23,10 +23,27 @@ jobs:
         shell: pwsh
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests\Engine.Tests.ps1
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests\Static.Tests.ps1
+
+  shell-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax and core JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n linux/pc-otimizador.sh
+          bash -n macos/pc-otimizador.sh
+          bash -n android/termux-pc-otimizador.sh
+          python3 -m json.tool core/presets.json >/dev/null
+          python3 -m py_compile core/load_preset.py
 
   build-zip:
-    needs: test
+    needs: [test, shell-smoke]
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 

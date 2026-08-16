@@ -38,7 +38,7 @@ echo.
 echo   Dica: 1 = mais seguro. 8 = so simula. G = tela com ajuda.
 echo   Nunca apaga Documentos/Fotos/Downloads. Logs em Documentos.
 echo.
-echo     1. Limpeza Segura ^(recomendado - temp/lixeira/caches^)
+echo     1. Limpeza Segura ^(recomendado - temp/caches regeneraveis^)
 echo     2. Turbo / Gamer ^(ATENCAO: pode mudar DNS/energia^)
 echo     3. Reparar Internet ^(ATENCAO: DNS/IP^)
 echo     4. Preset Completo ^(limpeza ampla, mais demorado^)
@@ -134,7 +134,7 @@ echo   ============================================================
 echo        AJUDA RAPIDA
 echo   ============================================================
 echo.
-echo   1  Limpeza Segura  = temp, lixeira, caches. Mais seguro.
+echo   1  Limpeza Segura  = temp e caches regeneraveis. Nao esvazia a Lixeira.
 echo   8  Dry-run         = simula a limpeza 1 SEM apagar.
 echo   2/3 Gamer/Internet = podem mudar DNS ou energia. Cuidado.
 echo   7/H Health/Estimar = so medem o PC, nao apagam.

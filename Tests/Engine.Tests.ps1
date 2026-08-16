@@ -11,7 +11,7 @@ function Assert-True([bool]$Cond, [string]$Name) {
   else { Write-Host "  FAIL $Name" -ForegroundColor Red; $script:failed++ }
 }
 
-Write-Host '== Engine tests v5.3 ==' -ForegroundColor Cyan
+Write-Host '== Engine tests v5.5 ==' -ForegroundColor Cyan
 Assert-True (Test-Path function:Get-HealthScore) 'Get-HealthScore'
 Assert-True (Test-Path function:Get-DriveMediaInfo) 'Get-DriveMediaInfo'
 Assert-True (Test-Path function:Test-PathWhitelisted) 'Test-PathWhitelisted'
@@ -58,7 +58,15 @@ Assert-True ($safe.Count -gt 5) 'safe preset from core/json'
 Assert-True ($safe -notcontains 'powerhigh') 'safe no high perf'
 Assert-True ($safe -notcontains 'dnscloud') 'safe no dnscloud'
 Assert-True ($safe -notcontains 'nettweak') 'safe no nettweak'
-Assert-True ($safe -contains 'cleanmgr') 'safe has cleanmgr'
+Assert-True ($safe -notcontains 'cleanmgr') 'safe excludes cleanmgr'
+Assert-True ($safe -notcontains 'recycle') 'safe excludes irreversible recycle bin'
+Assert-True ((Get-ActionRiskLevel 'upgrade') -eq 'high') 'upgrade high risk'
+Assert-True ((Get-ActionRiskLevel 'cleanmgr') -eq 'high') 'cleanmgr high risk'
+Assert-True ((Get-ActionRiskLevel 'dnsgoogle') -eq 'high') 'dnsgoogle high risk'
+Assert-True ((Get-ActionRiskLevel 'winsock') -eq 'high') 'winsock high risk'
+Assert-True (Test-CleanupTarget $env:TEMP) 'current temp is allowlisted'
+Assert-True (-not (Test-CleanupTarget ([IO.Path]::GetPathRoot($env:TEMP)))) 'filesystem root rejected'
+Assert-True (-not (Test-CleanupTarget $docs)) 'documents not cleanup target'
 
 # StrictMode parity with CLI (would have caught LogBox P0)
 $strictFailed = $false
@@ -90,6 +98,9 @@ $r = Invoke-OptimizationBatch -Ids @('temp','dns') -Actions $actions -DryRun
 Assert-True ($r.FreedMB -eq 0) 'dry frees 0'
 Assert-True ($null -ne $r.Before -and $null -ne $r.After) 'before/after present'
 Assert-True ($null -ne $r.Health) 'health on result'
+
+$blocked = Invoke-OptimizationBatch -Ids @('upgrade') -Actions @{ upgrade = @{ Nome = 'Upgrade'; Act = { return 1 } } }
+Assert-True ($blocked.Blocked) 'high risk blocked without capability'
 
 if ($failed -eq 0) { Write-Host "`nALL TESTS PASSED" -ForegroundColor Green; exit 0 }
 Write-Host "`n$failed FAILED" -ForegroundColor Red; exit 1

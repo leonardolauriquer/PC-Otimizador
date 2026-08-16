@@ -20,7 +20,7 @@ chmod +x termux-pc-otimizador.sh
 ```
 
 O que faz:
-- limpa caches do **próprio Termux** (`~/.cache`, `apt clean`, pip/npm cache)
+- limpa caches do **próprio Termux** (`~/.cache`, `apt clean`, pip/npm cache; sem autoremove)
 - **não** apaga DCIM / Download / WhatsApp / fotos
 
 ### 2) App nativo (futuro)

@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 <#
-  PC Otimizador Pro — CLI v5.3
+  PC Otimizador Pro — CLI v5.5
   -Preset safe|gamer|net|full|notebook
   -Mode menu|custom|scan|schedule|unschedule
   -DryRun -EstimateOnly -AutoYes -Lang pt|en
@@ -27,15 +27,15 @@ $script:UiLang = $Lang
 
 if (-not (Test-IsAdmin)) {
   Write-Host 'Admin...' -ForegroundColor Yellow
-  $pass = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$PSCommandPath)
-  if ($Preset) { $pass += @('-Preset',$Preset) }
-  if ($Mode) { $pass += @('-Mode',$Mode) }
-  if ($DryRun) { $pass += '-DryRun' }
-  if ($EstimateOnly) { $pass += '-EstimateOnly' }
-  if ($AutoYes) { $pass += '-AutoYes' }
-  if ($AllowHighRisk) { $pass += '-AllowHighRisk' }
-  if ($StreamProgress) { $pass += '-StreamProgress' }
-  if ($Lang) { $pass += @('-Lang',$Lang) }
+  $pass = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+  if ($Preset) { $pass += " -Preset $Preset" }
+  if ($Mode) { $pass += " -Mode $Mode" }
+  if ($DryRun) { $pass += ' -DryRun' }
+  if ($EstimateOnly) { $pass += ' -EstimateOnly' }
+  if ($AutoYes) { $pass += ' -AutoYes' }
+  if ($AllowHighRisk) { $pass += ' -AllowHighRisk' }
+  if ($StreamProgress) { $pass += ' -StreamProgress' }
+  if ($Lang) { $pass += " -Lang $Lang" }
   Start-Process powershell.exe -Verb RunAs -ArgumentList $pass | Out-Null
   exit
 }
@@ -43,7 +43,7 @@ if (-not (Test-IsAdmin)) {
 $script:Opts = [ordered]@{
   restore=@{ Nome='Criar ponto de restauracao'; Cat='maint'; Risk='safe'; Act={ Invoke-RestorePoint } }
   temp=@{ Nome='Arquivos temporarios'; Cat='limpeza'; Risk='safe'; Act={ Invoke-CleanTemp } }
-  recycle=@{ Nome='Esvaziar Lixeira'; Cat='limpeza'; Risk='safe'; Act={ Invoke-CleanRecycleBin } }
+  recycle=@{ Nome='Esvaziar Lixeira (irreversivel)'; Cat='limpeza'; Risk='advanced'; Act={ Invoke-CleanRecycleBin } }
   update=@{ Nome='Cache Windows Update'; Cat='limpeza'; Risk='safe'; Act={ Invoke-CleanUpdateCache } }
   delivery=@{ Nome='Delivery Optimization'; Cat='limpeza'; Risk='safe'; Act={ Invoke-CleanDeliveryOptimization } }
   thumbs=@{ Nome='Miniaturas e icones'; Cat='limpeza'; Risk='safe'; Act={ Invoke-CleanThumbnails } }
@@ -51,7 +51,7 @@ $script:Opts = [ordered]@{
   logs=@{ Nome='Logs do Windows'; Cat='limpeza'; Risk='safe'; Act={ Invoke-CleanLogs } }
   recent=@{ Nome='Atalhos recentes'; Cat='limpeza'; Risk='safe'; Act={ Invoke-CleanRecent } }
   font=@{ Nome='Cache de fontes'; Cat='limpeza'; Risk='safe'; Act={ Invoke-CleanFontCache } }
-  cleanmgr=@{ Nome='Limpeza de Disco (cleanmgr)'; Cat='limpeza'; Risk='safe'; Act={ Invoke-CleanMgr } }
+  cleanmgr=@{ Nome='Limpeza de Disco (perfil temporario)'; Cat='limpeza'; Risk='advanced'; Act={ Invoke-CleanMgr } }
   dismcleanup=@{ Nome='DISM Component Cleanup'; Cat='limpeza'; Risk='caution'; Act={ Invoke-DismCleanup } }
   browser=@{ Nome='Cache de navegadores'; Cat='limpeza'; Risk='caution'; Act={ Invoke-CleanBrowserCaches } }
   gpu=@{ Nome='Cache GPU / shaders'; Cat='limpeza'; Risk='safe'; Act={ Invoke-CleanGpuCache } }
@@ -73,7 +73,7 @@ $script:Opts = [ordered]@{
   dns=@{ Nome='Flush DNS'; Cat='net'; Risk='safe'; Act={ Invoke-FlushDNS } }
   arp=@{ Nome='Flush ARP'; Cat='net'; Risk='safe'; Act={ Invoke-FlushARP } }
   netbios=@{ Nome='Limpar NetBIOS'; Cat='net'; Risk='safe'; Act={ Invoke-ClearNetBIOS } }
-  nettweak=@{ Nome='Tweaks TCP'; Cat='net'; Risk='safe'; Act={ Invoke-NetOptimizations } }
+  nettweak=@{ Nome='Tweaks TCP'; Cat='net'; Risk='caution'; Act={ Invoke-NetOptimizations } }
   renewip=@{ Nome='Renovar IP'; Cat='net'; Risk='caution'; Act={ Invoke-RenewIP } }
   dnscloud=@{ Nome='DNS Cloudflare 1.1.1.1'; Cat='net'; Risk='caution'; Act={ Invoke-DnsCloudflare } }
   dnsgoogle=@{ Nome='DNS Google 8.8.8.8'; Cat='net'; Risk='caution'; Act={ Invoke-DnsGoogle } }
@@ -135,10 +135,10 @@ function Show-HelpScreen {
 
 function Get-PresetBlurb([string]$Key) {
   switch ($Key) {
-    'safe'     { return 'SAFE: limpa lixo regeneravel. Nao muda DNS/energia.' }
+    'safe'     { return 'SAFE: limpa temporarios e caches regeneraveis. Nao esvazia a Lixeira.' }
     'gamer'    { return 'RISK: limpeza + alto desempenho + possivel DNS/rede.' }
     'net'      { return 'RISK: flush rede; pode renovar IP e DNS Cloudflare.' }
-    'full'     { return 'Limpeza ampla (apps/navegador). Mais demorada.' }
+    'full'     { return 'Limpeza ampla (CleanMgr/lixeira/apps/navegador). Exige confirmacao de alto risco.' }
     'notebook' { return 'SAFE: limpeza + plano equilibrado (bom p/ bateria).' }
     default    { return '' }
   }
@@ -156,33 +156,42 @@ function Confirm-Go([string]$Msg='Continuar?') {
 
 function Invoke-SelectedRun {
   param([string[]]$Ids, [switch]$AsDry, [switch]$AsEstimate)
+  $batchAllowHighRisk = [bool]$AllowHighRisk
   if (-not $Ids -or $Ids.Count -eq 0) { Write-Host '  Nada selecionado.' -ForegroundColor Red; Start-Sleep 1; return }
   Write-Host ("  Itens: {0}" -f $Ids.Count) -ForegroundColor Cyan
   if (-not $AsEstimate -and -not $AsDry -and -not (Confirm-Go 'Executar agora?')) { return }
   if (-not $AsEstimate -and -not $AsDry) {
     $risky = @(Get-HighRiskActionIds -Ids $Ids)
     if ($risky.Count -gt 0) {
-      Write-Host ("  ALTO RISCO (DNS / energia / IP): {0}" -f ($risky -join ', ')) -ForegroundColor Red
+      Write-Host ("  ALTO RISCO (irreversivel / rede / energia): {0}" -f ($risky -join ', ')) -ForegroundColor Red
       if ($AllowHighRisk) {
         Write-Log 'AllowHighRisk: usuario ja confirmou na UI/CLI'
       } elseif ($AutoYes) {
         Write-Host '  Bloqueado: AutoYes nao aplica alto risco. Confirme no menu ou use -AllowHighRisk.' -ForegroundColor Yellow
+        if ($AutoYes) { exit 3 }
         return
       } elseif (-not (Confirm-Go 'Confirma acoes de ALTO RISCO? (pode mudar DNS e plano de energia)')) {
         return
+      } else {
+        $batchAllowHighRisk = $true
       }
     }
   }
   $actions = @{}
   foreach ($k in $script:Opts.Keys) { $actions[$k] = @{ Nome = $script:Opts[$k].Nome; Act = $script:Opts[$k].Act } }
-  $result = Invoke-OptimizationBatch -Ids $Ids -Actions $actions -DryRun:$AsDry -EstimateOnly:$AsEstimate
+  $result = Invoke-OptimizationBatch -Ids $Ids -Actions $actions -DryRun:$AsDry -EstimateOnly:$AsEstimate -AllowHighRisk:$batchAllowHighRisk
+  $script:LastResult = $result
   Write-Host ''
   Write-Host ("  Resultado: ~{0:N0} MB | Disco +{1} GB" -f $result.FreedMB, $result.DeltaGB) -ForegroundColor Green
   if ($result.Log) { Write-Host ("  Log: {0}" -f $result.Log) -ForegroundColor DarkGray }
+  if ($result.Blocked) { Write-Host '  Execucao bloqueada pela politica de risco.' -ForegroundColor Red }
+  elseif ($result.Failed) { Write-Host '  Execucao terminou com falhas; consulte o log.' -ForegroundColor Red }
   if (-not $AsDry -and -not $AsEstimate -and -not $AutoYes) {
     if (Confirm-Go 'Reiniciar PC agora?') { shutdown.exe /r /t 5 /c 'PC Otimizador Pro' }
     else { Write-Host '  Enter...'; [void](Read-Host) }
   } elseif (-not $AutoYes) { Write-Host '  Enter...'; [void](Read-Host) }
+  if ($AutoYes -and $result.Blocked) { exit 3 }
+  if ($AutoYes -and $result.Failed) { exit 4 }
 }
 
 function Show-PresetAndRun([string]$Key, [string]$Titulo) {

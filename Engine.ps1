@@ -20,15 +20,104 @@ function Get-FolderSizeMB {
   if (-not (Test-Path -LiteralPath $Path)) { return 0 }
   try {
     $sum = (Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue |
+      Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
       Measure-Object Length -Sum -ErrorAction SilentlyContinue).Sum
     if ($null -eq $sum) { return 0 }
     return [math]::Round($sum / 1MB, 2)
   } catch { return 0 }
 }
 
+function Get-WindowsRoot {
+  $machineRoot = [Environment]::GetEnvironmentVariable('SystemRoot', 'Machine')
+  if ($machineRoot) { return $machineRoot }
+  if ($env:SystemRoot) { return $env:SystemRoot }
+  if ($env:WINDIR) { return $env:WINDIR }
+  return 'C:\Windows'
+}
+
+function Get-CleanupAllowedRoots {
+  $systemRoot = Get-WindowsRoot
+  $systemDrive = if ($env:SystemDrive) { $env:SystemDrive } else { $systemRoot.Substring(0,2) }
+  $localApp = [Environment]::GetFolderPath('LocalApplicationData')
+  $appData = [Environment]::GetFolderPath('ApplicationData')
+  $programData = [Environment]::GetFolderPath('CommonApplicationData')
+  $userTemp = [IO.Path]::GetTempPath()
+  $roots = @(
+    $userTemp,
+    (Join-Path $localApp 'Temp'),
+    (Join-Path $systemRoot 'Temp'),
+    (Join-Path $systemRoot 'SoftwareDistribution\Download'),
+    (Join-Path $systemRoot 'SoftwareDistribution\DeliveryOptimization'),
+    (Join-Path $systemRoot 'ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache'),
+    (Join-Path $programData 'Microsoft\Windows\WER'),
+    (Join-Path $localApp 'Microsoft\Windows\WER'),
+    (Join-Path $systemRoot 'Minidump'),
+    (Join-Path $systemRoot 'Logs\CBS'),
+    (Join-Path $systemRoot 'Logs\DISM'),
+    (Join-Path $systemRoot 'Logs\WindowsUpdate'),
+    (Join-Path $localApp 'Microsoft\Windows\Explorer'),
+    ([Environment]::GetFolderPath('Recent')),
+    (Join-Path $localApp 'D3DSCache'),
+    (Join-Path $localApp 'NVIDIA\DXCache'),
+    (Join-Path $localApp 'NVIDIA\GLCache'),
+    (Join-Path $localApp 'AMD\DxCache'),
+    (Join-Path $localApp 'Intel\ShaderCache'),
+    (Join-Path $appData 'discord\Cache'),
+    (Join-Path $appData 'discord\Code Cache'),
+    (Join-Path $appData 'discord\GPUCache'),
+    (Join-Path $localApp 'Steam\htmlcache'),
+    (Join-Path $appData 'Microsoft\Teams\Cache'),
+    (Join-Path $appData 'Microsoft\Teams\GPUCache'),
+    (Join-Path $appData 'Spotify\Storage'),
+    (Join-Path $localApp 'Microsoft\Windows\INetCache'),
+    (Join-Path $localApp 'Microsoft\Windows\Fonts'),
+    (Join-Path $localApp 'Google\Chrome\User Data\Default\Cache'),
+    (Join-Path $localApp 'Google\Chrome\User Data\Default\Code Cache'),
+    (Join-Path $localApp 'Google\Chrome\User Data\Default\GPUCache'),
+    (Join-Path $localApp 'Microsoft\Edge\User Data\Default\Cache'),
+    (Join-Path $localApp 'Microsoft\Edge\User Data\Default\Code Cache'),
+    (Join-Path $localApp 'Microsoft\Edge\User Data\Default\GPUCache'),
+    (Join-Path $localApp 'BraveSoftware\Brave-Browser\User Data\Default\Cache'),
+    (Join-Path $localApp 'Opera Software\Opera Stable\Cache'),
+    (Join-Path $localApp 'Mozilla\Firefox\Profiles'),
+    (Join-Path $localApp 'Packages'),
+    (Join-Path $systemRoot 'ServiceProfiles\LocalService\AppData\Local\FontCache'),
+    (Join-Path $systemDrive '$Windows.~BT'),
+    (Join-Path $systemDrive '$Windows.~WS'),
+    (Join-Path $systemDrive 'Windows.old')
+  )
+  $profileRoot = [Environment]::GetFolderPath('UserProfile')
+  return @($roots | Where-Object { $_ } | ForEach-Object {
+    try { [IO.Path]::GetFullPath([string]$_).TrimEnd('\','/') } catch { $null }
+  } | Where-Object {
+    $_ -and $_ -ne [IO.Path]::GetPathRoot($_) -and
+    (-not $profileRoot -or -not (Test-PathUnderRoot -Path $profileRoot -Root $_))
+  } | Select-Object -Unique)
+}
+
+function Test-CleanupTarget {
+  param([string]$Path)
+  if (-not $Path) { return $false }
+  try { $full = [IO.Path]::GetFullPath($Path).TrimEnd('\','/') } catch { return $false }
+  $root = [IO.Path]::GetPathRoot($full).TrimEnd('\','/')
+  if (-not $root -or [string]::Equals($full, $root, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+  foreach ($allowed in (Get-CleanupAllowedRoots)) {
+    if (Test-PathUnderRoot -Path $full -Root $allowed) {
+      $item = Get-Item -LiteralPath $full -Force -ErrorAction SilentlyContinue
+      if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return $false }
+      return $true
+    }
+  }
+  return $false
+}
+
 function Remove-PathSafe {
   param([string]$Path, [switch]$Recurse)
   if (-not (Test-Path -LiteralPath $Path)) { return 0 }
+  if (-not (Test-CleanupTarget $Path)) {
+    Write-Log ("Alvo recusado pela allowlist: {0}" -f $Path) 'ERROR'
+    return 0
+  }
   if (Test-PathWhitelisted $Path) {
     Write-Log ("Whitelist: protegido, nao remove {0}" -f $Path) 'WARN'
     return 0
@@ -41,6 +130,10 @@ function Remove-PathSafe {
   try {
     if ($Recurse) {
       Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+          Write-Log ("Reparse point ignorado: {0}" -f $_.FullName) 'WARN'
+          return
+        }
         if (Test-PathWhitelisted $_.FullName) { return }
         Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
       }
@@ -98,7 +191,9 @@ function Set-RegDword {
 # ── Actions: Limpeza ─────────────────────────────────────────────────────────
 function Invoke-CleanTemp {
   $freed = 0.0
-  foreach ($p in @($env:TEMP, "$env:LOCALAPPDATA\Temp", 'C:\Windows\Temp')) {
+  $systemRoot = Get-WindowsRoot
+  $targets = @($env:TEMP, "$env:LOCALAPPDATA\Temp", (Join-Path $systemRoot 'Temp')) | Select-Object -Unique
+  foreach ($p in $targets) {
     Write-Log "Limpando $p"
     $freed += [double](Remove-PathSafe $p -Recurse)
   }
@@ -121,26 +216,29 @@ function Invoke-CleanRecycleBin {
 function Invoke-CleanUpdateCache {
   Write-Log 'Cache Windows Update...'
   $freed = 0.0
+  $wu = Get-Service wuauserv -ErrorAction SilentlyContinue
+  $bits = Get-Service bits -ErrorAction SilentlyContinue
+  $wuWasRunning = $wu -and $wu.Status -eq 'Running'
+  $bitsWasRunning = $bits -and $bits.Status -eq 'Running'
   try {
     Stop-Service wuauserv, bits -Force -ErrorAction SilentlyContinue
-    $freed = [double](Remove-PathSafe 'C:\Windows\SoftwareDistribution\Download' -Recurse)
+    $freed = [double](Remove-PathSafe (Join-Path (Get-WindowsRoot) 'SoftwareDistribution\Download') -Recurse)
   } finally {
-    Start-Service bits, wuauserv -ErrorAction SilentlyContinue
+    if ($bitsWasRunning) { Start-Service bits -ErrorAction SilentlyContinue }
+    if ($wuWasRunning) { Start-Service wuauserv -ErrorAction SilentlyContinue }
   }
   Write-Log "Update cache: ~$freed MB"; return $freed
 }
 
 function Invoke-CleanDeliveryOptimization {
   Write-Log 'Delivery Optimization...'
-  $freed = [double](Remove-PathSafe 'C:\Windows\SoftwareDistribution\DeliveryOptimization' -Recurse)
-  $freed += [double](Remove-PathSafe "$env:WINDIR\ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache" -Recurse)
+  $freed = [double](Remove-PathSafe (Join-Path (Get-WindowsRoot) 'SoftwareDistribution\DeliveryOptimization') -Recurse)
+  $freed += [double](Remove-PathSafe (Join-Path (Get-WindowsRoot) 'ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache') -Recurse)
   Write-Log "Delivery Opt: ~$freed MB"; return $freed
 }
 
 function Invoke-CleanThumbnails {
   Write-Log 'Cache de miniaturas/icones...'
-  Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
-  Start-Sleep -Milliseconds 700
   $freed = 0.0
   $ex = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer"
   Get-ChildItem $ex -Filter 'thumbcache_*.db' -Force -EA SilentlyContinue | ForEach-Object {
@@ -149,13 +247,12 @@ function Invoke-CleanThumbnails {
   }
   $icon = "$env:LOCALAPPDATA\IconCache.db"
   if (Test-Path $icon) { Remove-Item $icon -Force -EA SilentlyContinue }
-  Start-Process explorer.exe
   Write-Log "Thumbs/icons: ~$freed MB"; return $freed
 }
 
 function Invoke-CleanPrefetch {
   Write-Log 'Prefetch...'
-  $f = [double](Remove-PathSafe 'C:\Windows\Prefetch' -Recurse)
+  $f = [double](Remove-PathSafe (Join-Path (Get-WindowsRoot) 'Prefetch') -Recurse)
   Write-Log "Prefetch: ~$f MB"; return $f
 }
 
@@ -163,13 +260,14 @@ function Invoke-CleanWER {
   Write-Log 'Relatorios de erro + minidumps...'
   $f = 0.0
   foreach ($p in @(
-    'C:\ProgramData\Microsoft\Windows\WER',
+    (Join-Path $env:ProgramData 'Microsoft\Windows\WER'),
     "$env:LOCALAPPDATA\Microsoft\Windows\WER",
-    'C:\Windows\Minidump'
+    (Join-Path (Get-WindowsRoot) 'Minidump')
   )) { $f += [double](Remove-PathSafe $p -Recurse) }
-  if (Test-Path 'C:\Windows\MEMORY.DMP') {
-    $sz = [math]::Round((Get-Item 'C:\Windows\MEMORY.DMP').Length / 1MB, 2)
-    Remove-Item 'C:\Windows\MEMORY.DMP' -Force -EA SilentlyContinue
+  $memoryDump = Join-Path (Get-WindowsRoot) 'MEMORY.DMP'
+  if (Test-Path $memoryDump) {
+    $sz = [math]::Round((Get-Item $memoryDump).Length / 1MB, 2)
+    Remove-Item $memoryDump -Force -EA SilentlyContinue
     $f += $sz
   }
   Write-Log "WER/dumps: ~$f MB"; return $f
@@ -179,10 +277,10 @@ function Invoke-CleanLogs {
   Write-Log 'Logs do Windows...'
   $f = 0.0
   foreach ($p in @(
-    'C:\Windows\Logs\CBS',
-    'C:\Windows\Logs\DISM',
-    'C:\Windows\Logs\WindowsUpdate',
-    'C:\Windows\SoftwareDistribution\ReportingEvents.log'
+    (Join-Path (Get-WindowsRoot) 'Logs\CBS'),
+    (Join-Path (Get-WindowsRoot) 'Logs\DISM'),
+    (Join-Path (Get-WindowsRoot) 'Logs\WindowsUpdate'),
+    (Join-Path (Get-WindowsRoot) 'SoftwareDistribution\ReportingEvents.log')
   )) {
     if (Test-Path $p -PathType Leaf) {
       $sz = [math]::Round((Get-Item $p).Length / 1MB, 2)
@@ -195,10 +293,6 @@ function Invoke-CleanLogs {
 
 function Invoke-CleanBrowserCaches {
   Write-Log 'Cache navegadores (favoritos/senhas preservados)...'
-  foreach ($n in @('chrome', 'msedge', 'firefox', 'brave', 'opera')) {
-    Get-Process -Name $n -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue
-  }
-  Start-Sleep -Milliseconds 400
   $f = 0.0
   $paths = @(
     "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache",
@@ -225,11 +319,13 @@ function Invoke-CleanRecent {
 
 function Invoke-CleanFontCache {
   Write-Log 'Cache de fontes...'
+  $svc = Get-Service FontCache -ErrorAction SilentlyContinue
+  $wasRunning = $svc -and $svc.Status -eq 'Running'
   try {
     Stop-Service FontCache -Force -EA SilentlyContinue
-    Remove-Item 'C:\Windows\ServiceProfiles\LocalService\AppData\Local\FontCache\*' -Recurse -Force -EA SilentlyContinue
-    Start-Service FontCache -EA SilentlyContinue
-  } catch {}
+    Remove-Item (Join-Path (Get-WindowsRoot) 'ServiceProfiles\LocalService\AppData\Local\FontCache\*') -Recurse -Force -EA SilentlyContinue
+  } catch { Write-Log ("FontCache: {0}" -f $_) 'WARN' }
+  finally { if ($wasRunning) { Start-Service FontCache -EA SilentlyContinue } }
   return 0
 }
 
@@ -250,9 +346,6 @@ function Invoke-CleanGpuCache {
 function Invoke-CleanAppCaches {
   Write-Log 'Cache apps (Discord/Steam/Teams/Spotify)...'
   $f = 0.0
-  foreach ($n in @('Discord', 'Steam', 'Teams', 'Spotify')) {
-    Get-Process -Name $n -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue
-  }
   $paths = @(
     "$env:APPDATA\discord\Cache",
     "$env:APPDATA\discord\Code Cache",
@@ -282,23 +375,41 @@ function Invoke-CleanStoreCache {
 }
 
 function Invoke-CleanMgr {
-  Write-Log 'Limpeza de Disco do Windows (sem Windows.old)...'
+  Write-Log 'Limpeza de Disco do Windows (perfil temporario seguro)...'
   $base = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches'
-  # NUNCA incluir Previous Installations aqui — isso apaga Windows.old.
-  # Update Cleanup / Previous Installations ficam no perfil advanced (upgrade).
-  foreach ($k in @(
+  $keys = @(
     'Temporary Files', 'Temporary Setup Files', 'Thumbnail Cache', 'Recycle Bin',
     'Delivery Optimization Files', 'Windows Error Reporting Files',
     'Downloaded Program Files', 'Internet Cache Files',
     'System error memory dump files', 'System error minidump files'
-  )) {
-    $path = Join-Path $base $k
-    if (Test-Path $path) {
-      Set-ItemProperty $path -Name StateFlags0099 -Value 2 -Type DWord -Force -EA SilentlyContinue
+  )
+  $slot = Get-Random -Minimum 7000 -Maximum 9999
+  $flag = "StateFlags{0}" -f $slot
+  $changed = @()
+  try {
+    while (@(Get-ChildItem -LiteralPath $base -EA SilentlyContinue | Where-Object {
+      $v = Get-ItemProperty -LiteralPath $_.PSPath -Name $flag -EA SilentlyContinue
+      $null -ne $v
+    }).Count -gt 0) { $slot = Get-Random -Minimum 7000 -Maximum 9999; $flag = "StateFlags{0}" -f $slot }
+    foreach ($k in $keys) {
+      $path = Join-Path $base $k
+      if (-not (Test-Path $path)) { continue }
+      $old = Get-ItemProperty -LiteralPath $path -Name $flag -EA SilentlyContinue
+      $hadOld = $null -ne $old
+      $oldValue = if ($hadOld) { [int]$old.$flag } else { 0 }
+      $changed += [pscustomobject]@{ Path = $path; Had = $hadOld; Value = $oldValue }
+      Set-ItemProperty $path -Name $flag -Value 2 -Type DWord -Force -EA Stop
+    }
+    Start-Process cleanmgr.exe -ArgumentList ("/sagerun:{0}" -f $slot) -Wait -WindowStyle Hidden -EA Stop
+    Write-Log 'cleanmgr concluido'; return 0
+  } catch {
+    Write-Log ("cleanmgr falhou: {0}" -f $_) 'WARN'; return 0
+  } finally {
+    foreach ($entry in $changed) {
+      if ($entry.Had) { Set-ItemProperty $entry.Path -Name $flag -Value $entry.Value -Type DWord -Force -EA SilentlyContinue }
+      else { Remove-ItemProperty $entry.Path -Name $flag -Force -EA SilentlyContinue }
     }
   }
-  Start-Process cleanmgr.exe -ArgumentList '/sagerun:99' -Wait -WindowStyle Hidden -EA SilentlyContinue
-  Write-Log 'cleanmgr concluido'; return 0
 }
 
 function Invoke-DismCleanup {
@@ -310,7 +421,8 @@ function Invoke-DismCleanup {
 function Invoke-CleanUpgradeLeftovers {
   Write-Log 'Pastas de upgrade orfas ($Windows.~BT / ~WS)...'
   $f = 0.0
-  foreach ($p in @('C:\$Windows.~BT', 'C:\$Windows.~WS', 'C:\Windows.old')) {
+  $systemDrive = if ($env:SystemDrive) { $env:SystemDrive } else { (Get-WindowsRoot).Substring(0,2) }
+  foreach ($p in @((Join-Path $systemDrive '$Windows.~BT'), (Join-Path $systemDrive '$Windows.~WS'), (Join-Path $systemDrive 'Windows.old'))) {
     if (Test-Path $p) {
       Write-Log "Removendo $p (pode demorar)..."
       # Windows.old exige takeown; tenta via cleanmgr style
@@ -516,10 +628,10 @@ function Invoke-ScanOnly {
   $items = @(
     @{ N = 'Temp usuario'; P = $env:TEMP }
     @{ N = 'Temp LocalAppData'; P = "$env:LOCALAPPDATA\Temp" }
-    @{ N = 'Temp Windows'; P = 'C:\Windows\Temp' }
-    @{ N = 'Windows Update'; P = 'C:\Windows\SoftwareDistribution\Download' }
-    @{ N = 'Prefetch'; P = 'C:\Windows\Prefetch' }
-    @{ N = 'WER'; P = 'C:\ProgramData\Microsoft\Windows\WER' }
+    @{ N = 'Temp Windows'; P = (Join-Path (Get-WindowsRoot) 'Temp') }
+    @{ N = 'Windows Update'; P = (Join-Path (Get-WindowsRoot) 'SoftwareDistribution\Download') }
+    @{ N = 'Prefetch'; P = (Join-Path (Get-WindowsRoot) 'Prefetch') }
+    @{ N = 'WER'; P = (Join-Path $env:ProgramData 'Microsoft\Windows\WER') }
     @{ N = 'D3DSCache'; P = "$env:LOCALAPPDATA\D3DSCache" }
     @{ N = 'Chrome Cache'; P = "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache" }
     @{ N = 'Edge Cache'; P = "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache" }
@@ -752,7 +864,8 @@ function Invoke-OptimizationBatch {
     [string[]]$Ids,
     [hashtable]$Actions,
     [switch]$DryRun,
-    [switch]$EstimateOnly
+    [switch]$EstimateOnly,
+    [switch]$AllowHighRisk
   )
   Reset-CancelFlag
   Import-Whitelist
@@ -771,6 +884,18 @@ function Invoke-OptimizationBatch {
   Write-Log ("Inicio batch | itens={0} | dry={1}" -f $Ids.Count, $script:DryRun)
   try { [Console]::Out.WriteLine(('##RESULT##|BEFORE|{0}|{1}|{2}|{3}' -f $before.DiskFree, $before.DiskTot, $before.RamUsed, $before.RamTot)) } catch {}
   $est = Write-EstimatesReport -Ids $Ids
+  $highRisk = @(Get-HighRiskActionIds -Ids $Ids)
+  if (-not $DryRun -and -not $EstimateOnly -and $highRisk.Count -gt 0 -and -not $AllowHighRisk) {
+    $blockedMsg = "Bloqueado: exige confirmacao de alto risco: {0}" -f ($highRisk -join ', ')
+    Write-Log $blockedMsg 'ERROR'
+    $path = Complete-SessionLog -Summary $blockedMsg
+    try { [Console]::Out.WriteLine(('##DONE##|BLOCKED|{0}' -f ($highRisk -join ','))) } catch {}
+    return [pscustomobject]@{
+      FreedMB = 0; DeltaGB = 0; Log = $path; EstimatedMB = $est
+      Before = $before; After = $before; Cancelled = $false; Blocked = $true
+      Failed = $false; Health = (Get-HealthScore)
+    }
+  }
   if ($EstimateOnly -or $DryRun) {
     if ($DryRun) {
       $i = 0
@@ -785,9 +910,11 @@ function Invoke-OptimizationBatch {
     $path = Complete-SessionLog -Summary ("Estimativa total: ~{0} MB" -f $est)
     $after = Get-SystemSnapshot
     try { [Console]::Out.WriteLine(('##RESULT##|AFTER|{0}|{1}|{2}|{3}|{4}|{5}|0' -f $after.DiskFree, $after.DiskTot, $after.RamUsed, $after.RamTot, $est, $path)) } catch {}
+    try { [Console]::Out.WriteLine(('##DONE##|{0}' -f $(if ($script:CancelRequested) { 'CANCELLED' } elseif ($DryRun) { 'DRYRUN' } else { 'ESTIMATE' }))) } catch {}
     return [pscustomobject]@{
       FreedMB = 0; DeltaGB = 0; Log = $path; EstimatedMB = $est
-      Before = $before; After = $after; Cancelled = [bool]$script:CancelRequested; Health = (Get-HealthScore)
+      Before = $before; After = $after; Cancelled = [bool]$script:CancelRequested
+      Blocked = $false; Failed = $false; Health = (Get-HealthScore)
     }
   }
 
@@ -796,6 +923,7 @@ function Invoke-OptimizationBatch {
   # filter trim suggestion already logged; still allow if selected
   $i = 0
   $cancelled = $false
+  $failed = $false
   foreach ($id in $order) {
     $i++
     if (Test-CancelRequested) { $cancelled = $true; Write-Log (Get-T 'cancelled') 'WARN'; break }
@@ -806,7 +934,7 @@ function Invoke-OptimizationBatch {
     try {
       $f = & $o.Act
       if ($f) { $freed += [double]$f }
-    } catch { Write-Log "Erro $id : $_" 'ERROR' }
+    } catch { $failed = $true; Write-Log "Erro $id : $_" 'ERROR' }
   }
   $after = Get-SystemSnapshot
   $delta = [math]::Round($after.DiskFree - $before.DiskFree, 2)
@@ -816,11 +944,12 @@ function Invoke-OptimizationBatch {
   $health = Get-HealthScore
   try {
     [Console]::Out.WriteLine(('##RESULT##|AFTER|{0}|{1}|{2}|{3}|{4}|{5}|{6}' -f $after.DiskFree, $after.DiskTot, $after.RamUsed, $after.RamTot, [math]::Round($freed,1), $path, $health.Score))
-    [Console]::Out.WriteLine(('##DONE##|{0}' -f $(if ($cancelled) { 'CANCELLED' } else { 'OK' })))
+    [Console]::Out.WriteLine(('##DONE##|{0}' -f $(if ($cancelled) { 'CANCELLED' } elseif ($failed) { 'FAILED' } else { 'OK' })))
   } catch {}
   return [pscustomobject]@{
     FreedMB = $freed; DeltaGB = $delta; Log = $path; EstimatedMB = $est
-    Before = $before; After = $after; Cancelled = $cancelled; Health = $health
+    Before = $before; After = $after; Cancelled = $cancelled; Blocked = $false
+    Failed = $failed; Health = $health
   }
 }
 
@@ -847,19 +976,24 @@ function Complete-SessionLog {
 }
 
 function Get-OptionPathMap {
+  $root = Get-WindowsRoot
+  $drive = if ($env:SystemDrive) { $env:SystemDrive } else { $root.Substring(0,2) }
+  $localApp = [Environment]::GetFolderPath('LocalApplicationData')
+  $appData = [Environment]::GetFolderPath('ApplicationData')
+  $programData = [Environment]::GetFolderPath('CommonApplicationData')
   @{
-    temp     = @($env:TEMP, "$env:LOCALAPPDATA\Temp", 'C:\Windows\Temp')
-    update   = @('C:\Windows\SoftwareDistribution\Download')
-    delivery = @('C:\Windows\SoftwareDistribution\DeliveryOptimization', "$env:WINDIR\ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache")
-    wer      = @('C:\ProgramData\Microsoft\Windows\WER', "$env:LOCALAPPDATA\Microsoft\Windows\WER", 'C:\Windows\Minidump')
-    logs     = @('C:\Windows\Logs\CBS', 'C:\Windows\Logs\DISM', 'C:\Windows\Logs\WindowsUpdate')
-    prefetch = @('C:\Windows\Prefetch')
+    temp     = @($env:TEMP, "$env:LOCALAPPDATA\Temp", (Join-Path $root 'Temp'))
+    update   = @((Join-Path $root 'SoftwareDistribution\Download'))
+    delivery = @((Join-Path $root 'SoftwareDistribution\DeliveryOptimization'), (Join-Path $root 'ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache'))
+    wer      = @((Join-Path $programData 'Microsoft\Windows\WER'), "$env:LOCALAPPDATA\Microsoft\Windows\WER", (Join-Path $root 'Minidump'))
+    logs     = @((Join-Path $root 'Logs\CBS'), (Join-Path $root 'Logs\DISM'), (Join-Path $root 'Logs\WindowsUpdate'))
+    prefetch = @((Join-Path $root 'Prefetch'))
     recent   = @([Environment]::GetFolderPath('Recent'))
-    gpu      = @("$env:LOCALAPPDATA\D3DSCache", "$env:LOCALAPPDATA\NVIDIA\DXCache", "$env:LOCALAPPDATA\NVIDIA\GLCache", "$env:LOCALAPPDATA\AMD\DxCache", "$env:LOCALAPPDATA\Intel\ShaderCache")
-    browser  = @("$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache", "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache", "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\Cache")
-    apps     = @("$env:APPDATA\discord\Cache", "$env:LOCALAPPDATA\Steam\htmlcache", "$env:APPDATA\Microsoft\Teams\Cache", "$env:APPDATA\Spotify\Storage")
-    store    = @("$env:LOCALAPPDATA\Microsoft\Windows\INetCache")
-    upgrade  = @('C:\$Windows.~BT', 'C:\$Windows.~WS', 'C:\Windows.old')
+    gpu      = @((Join-Path $localApp 'D3DSCache'), (Join-Path $localApp 'NVIDIA\DXCache'), (Join-Path $localApp 'NVIDIA\GLCache'), (Join-Path $localApp 'AMD\DxCache'), (Join-Path $localApp 'Intel\ShaderCache'))
+    browser  = @((Join-Path $localApp 'Google\Chrome\User Data\Default\Cache'), (Join-Path $localApp 'Microsoft\Edge\User Data\Default\Cache'), (Join-Path $localApp 'BraveSoftware\Brave-Browser\User Data\Default\Cache'))
+    apps     = @((Join-Path $appData 'discord\Cache'), (Join-Path $localApp 'Steam\htmlcache'), (Join-Path $appData 'Microsoft\Teams\Cache'), (Join-Path $appData 'Spotify\Storage'))
+    store    = @((Join-Path $localApp 'Microsoft\Windows\INetCache'))
+    upgrade  = @((Join-Path $drive '$Windows.~BT'), (Join-Path $drive '$Windows.~WS'), (Join-Path $drive 'Windows.old'))
   }
 }
 
@@ -868,12 +1002,15 @@ function Get-OptionEstimateMB {
   $total = 0.0
   $map = Get-OptionPathMap
   if ($map.ContainsKey($Id)) {
-    foreach ($p in $map[$Id]) {
+    foreach ($p in @($map[$Id] | ForEach-Object {
+      try { [IO.Path]::GetFullPath([string]$_) } catch { [string]$_ }
+    } | Select-Object -Unique)) {
       if ($p -and (Test-Path -LiteralPath $p)) { $total += [double](Get-FolderSizeMB $p) }
     }
   }
-  if ($Id -eq 'wer' -and (Test-Path 'C:\Windows\MEMORY.DMP')) {
-    $total += [math]::Round((Get-Item 'C:\Windows\MEMORY.DMP').Length / 1MB, 2)
+  $memoryDump = Join-Path (Get-WindowsRoot) 'MEMORY.DMP'
+  if ($Id -eq 'wer' -and (Test-Path $memoryDump)) {
+    $total += [math]::Round((Get-Item $memoryDump).Length / 1MB, 2)
   }
   if ($Id -eq 'thumbs') {
     Get-ChildItem "$env:LOCALAPPDATA\Microsoft\Windows\Explorer" -Filter 'thumbcache_*.db' -Force -EA SilentlyContinue | ForEach-Object {
@@ -928,8 +1065,8 @@ function Get-PresetIds {
     'gamer'    { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','gpu','apps','trim','tips','gamebar','gamemode','bgapps','widgets','powerhigh','dns','arp','nettweak','nagle','dnscloud') }
     'net'      { return @('restore','dns','arp','netbios','nettweak','renewip','dnscloud') }
     'full'     { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','dismcleanup','browser','gpu','apps','store','trim','storage','tips','visual','bgapps','widgets','searchweb','gamebar','gamemode','dns','arp','netbios') }
-    'notebook' { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','trim','storage','tips','powerbal','bgapps','widgets','dns','arp','netbios') }
-    default    { return @('restore','temp','recycle','update','delivery','thumbs','wer','logs','recent','font','cleanmgr','dismcleanup','trim','storage','tips','dns','arp','netbios') }
+    'notebook' { return @('restore','temp','update','delivery','thumbs','wer','logs','recent','font','trim','storage','tips','powerbal','bgapps','widgets','dns','arp','netbios') }
+    default    { return @('restore','temp','update','delivery','thumbs','wer','logs','recent','font','trim','storage','tips','dns','arp','netbios') }
   }
 }
 
@@ -942,8 +1079,8 @@ function Get-ActionRiskLevel {
     if ($prop) { return [string]$prop.Value }
   }
   switch ($Id) {
-    { $_ -in @('dnscloud','powerhigh','renewip','bloat') } { return 'high' }
-    { $_ -in @('nagle','nettweak') } { return 'medium' }
+    { $_ -in @('dnscloud','dnsgoogle','powerhigh','renewip','bloat','upgrade','recycle','prefetch','winsock','tcpip','cleanmgr') } { return 'high' }
+    { $_ -in @('nagle','nettweak','browser','apps','dismcleanup','visual','sfc','dismrestore') } { return 'medium' }
     default { return 'safe' }
   }
 }
@@ -956,9 +1093,23 @@ function Get-HighRiskActionIds {
 
 function Register-WeeklyCleanup {
   $task = 'PCOtimizadorProWeekly'
-  $cli = Join-Path $PSScriptRoot 'PC-Otimizador-CLI.ps1'
+  $payloadBase = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'PC-Otimizador'
+  New-Item -ItemType Directory -Path $payloadBase -Force | Out-Null
+  & icacls.exe $payloadBase /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)(F)' '*S-1-5-32-544:(OI)(CI)(F)' /setintegritylevel H | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel proteger a pasta do agendamento.' }
+  $payload = Join-Path $payloadBase ("scheduled-{0}" -f [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path $payload -Force | Out-Null
+  & icacls.exe $payload /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)(F)' '*S-1-5-32-544:(OI)(CI)(F)' /setintegritylevel H | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel proteger o payload do agendamento.' }
+  New-Item -ItemType Directory -Path (Join-Path $payload 'core') -Force | Out-Null
+  foreach ($file in @('PC-Otimizador-CLI.ps1','Engine.ps1','VERSION')) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $payload $file) -Force -ErrorAction Stop
+  }
+  Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'core\presets.json') -Destination (Join-Path $payload 'core\presets.json') -Force -ErrorAction Stop
+  $cli = Join-Path $payload 'PC-Otimizador-CLI.ps1'
   $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$cli`" -Preset safe -AutoYes"
-  $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arg
+  $powershell = Join-Path (Get-WindowsRoot) 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  $action = New-ScheduledTaskAction -Execute $powershell -Argument $arg
   $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At 10:00am
   $prin = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest
   Register-ScheduledTask -TaskName $task -Action $action -Trigger $trigger -Principal $prin -Force | Out-Null
