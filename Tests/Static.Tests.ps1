@@ -42,6 +42,9 @@ Assert-Contains $gui 'TableLayoutPanel' 'GUI responsive preset grid'
 Assert-Contains $gui 'INICIALIZAÇÃO' 'GUI initialization navigation'
 Assert-Contains $gui 'CONFIGURAÇÕES' 'GUI settings navigation'
 Assert-Contains $gui 'FormBorderStyle = FormBorderStyle.None' 'GUI custom chrome'
+Assert-Contains $gui 'void LayoutRoot()' 'GUI sidebar/content bounds'
+Assert-Contains $gui 'int cellWidth' 'GUI equal card sizing'
+Assert-Contains $gui 'SizeType.Absolute' 'GUI pixel-stable card columns'
 
 if ($failed -eq 0) { Write-Host "`nALL STATIC TESTS PASSED" -ForegroundColor Green; exit 0 }
 Write-Host "`n$failed FAILED" -ForegroundColor Red

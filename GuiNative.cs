@@ -560,7 +560,18 @@ namespace PCOtimizador
             int progressH = 154;
             int statsY = progressY + progressH + 18;
             int statsH = Math.Max(118, h - statsY - 38);
-            if (_presetGrid != null) _presetGrid.Bounds = new Rectangle(30, gridY, w, gridHeight);
+            if (_presetGrid != null)
+            {
+                int cellWidth = Math.Max(160, w / 4);
+                int gridWidth = cellWidth * 4;
+                int gridLeft = 30 + Math.Max(0, (w - gridWidth) / 2);
+                _presetGrid.Bounds = new Rectangle(gridLeft, gridY, gridWidth, gridHeight);
+                for (int i = 0; i < _presetGrid.ColumnStyles.Count; i++)
+                {
+                    _presetGrid.ColumnStyles[i].SizeType = SizeType.Absolute;
+                    _presetGrid.ColumnStyles[i].Width = cellWidth;
+                }
+            }
             foreach (var kv in _pages) kv.Value.Bounds = new Rectangle(30, gridY, w, gridHeight);
             if (_progressBox != null)
             {
@@ -692,8 +703,8 @@ namespace PCOtimizador
         {
             var page = new Panel { BackColor = Bg };
             _content.Controls.Add(page); _pages["inicio"] = page;
-            _presetGrid = new TableLayoutPanel { ColumnCount = 4, RowCount = 1, BackColor = Color.Transparent, Margin = new Padding(0), Padding = new Padding(0), GrowStyle = TableLayoutPanelGrowStyle.FixedSize, Dock = DockStyle.Fill };
-            for (int i = 0; i < 4; i++) _presetGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+            _presetGrid = new TableLayoutPanel { ColumnCount = 4, RowCount = 1, BackColor = Color.Transparent, Margin = new Padding(0), Padding = new Padding(0), GrowStyle = TableLayoutPanelGrowStyle.FixedSize, Dock = DockStyle.None };
+            for (int i = 0; i < 4; i++) _presetGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200f));
             _presetGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             page.Controls.Add(_presetGrid);
             _presetGrid.Controls.Add(MakePresetCard("LIMPEZA SEGURA", "Ideal para manter o PC limpo e protegido", "SAFE", "shield", Accent, () => RunPreset("safe", false), "Temporários e caches regeneráveis. Não esvazia a Lixeira."), 0, 0);
