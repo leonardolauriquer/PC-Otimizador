@@ -67,6 +67,9 @@ Assert-Contains $gui 'string target = _pages.ContainsKey(name) ? name : "inicio"
 Assert-Contains $gui 'case "network"' 'GUI network icon'
 Assert-Contains $gui 'case "clock"' 'GUI clock icon'
 Assert-Contains $gui 'case "folder"' 'GUI folder icon'
+Assert-Contains $gui 'ShowTile = false' 'GUI metric icons without empty tile'
+Assert-Contains $gui 'case "health"' 'GUI health metric icon'
+Assert-Contains $gui '_btnCancel.Visible = false' 'GUI idle cancel button hidden'
 
 if ($failed -eq 0) { Write-Host "`nALL STATIC TESTS PASSED" -ForegroundColor Green; exit 0 }
 Write-Host "`n$failed FAILED" -ForegroundColor Red

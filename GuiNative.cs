@@ -249,6 +249,7 @@ namespace PCOtimizador
         public string Kind;
         public Color AccentColor = Color.FromArgb(0, 229, 192);
         public int Stroke = 2;
+        public bool ShowTile = true;
 
         public IconCanvas(string kind, int size)
         {
@@ -267,15 +268,20 @@ namespace PCOtimizador
             float s = Math.Min(Width, Height);
             float lineWidth = Math.Max(1.45f, s * 0.045f);
             var tile = new RectangleF(s * .08f, s * .08f, s * .84f, s * .84f);
-            using (var tilePath = RoundPanel.RoundRect(Rectangle.Round(tile), (int)Math.Max(6, s * .20f)))
-            using (var tileBrush = new SolidBrush(Color.FromArgb(18, AccentColor)))
-            using (var tilePen = new Pen(Color.FromArgb(55, AccentColor), Math.Max(1f, lineWidth * .55f)))
             using (var glow = new Pen(Color.FromArgb(24, AccentColor), lineWidth + 3f))
             using (var pen = new Pen(AccentColor, lineWidth))
             using (var brush = new SolidBrush(AccentColor))
             {
-                e.Graphics.FillPath(tileBrush, tilePath);
-                e.Graphics.DrawPath(tilePen, tilePath);
+                if (ShowTile)
+                {
+                    using (var tilePath = RoundPanel.RoundRect(Rectangle.Round(tile), (int)Math.Max(6, s * .20f)))
+                    using (var tileBrush = new SolidBrush(Color.FromArgb(18, AccentColor)))
+                    using (var tilePen = new Pen(Color.FromArgb(55, AccentColor), Math.Max(1f, lineWidth * .55f)))
+                    {
+                        e.Graphics.FillPath(tileBrush, tilePath);
+                        e.Graphics.DrawPath(tilePen, tilePath);
+                    }
+                }
                 glow.LineJoin = LineJoin.Round;
                 glow.StartCap = LineCap.Round; glow.EndCap = LineCap.Round;
                 pen.LineJoin = LineJoin.Round;
@@ -321,6 +327,21 @@ namespace PCOtimizador
                     }
                     g.DrawLine(pen, cx - s * .20f, cy, cx - s * .05f, cy + s * .12f);
                     g.DrawLine(pen, cx - s * .05f, cy + s * .12f, cx + s * .22f, cy - s * .16f);
+                    break;
+                case "health":
+                    using (var health = new GraphicsPath())
+                    {
+                        health.AddBezier(cx, b, l + s * .05f, s * .55f, l + s * .02f, t + s * .10f, cx - s * .18f, t + s * .22f);
+                        health.AddBezier(cx - s * .18f, t + s * .22f, cx - s * .02f, t - s * .01f, cx - s * .01f, t + s * .18f, cx, t + s * .27f);
+                        health.AddBezier(cx, t + s * .27f, cx + s * .01f, t + s * .18f, cx + s * .02f, t - s * .01f, cx + s * .18f, t + s * .22f);
+                        health.AddBezier(cx + s * .18f, t + s * .22f, r - s * .02f, t + s * .10f, r - s * .05f, s * .55f, cx, b);
+                        g.DrawPath(pen, health);
+                    }
+                    g.DrawLine(pen, l + s * .18f, cy, cx - s * .12f, cy);
+                    g.DrawLine(pen, cx - s * .12f, cy, cx - s * .04f, cy - s * .13f);
+                    g.DrawLine(pen, cx - s * .04f, cy - s * .13f, cx + s * .05f, cy + s * .12f);
+                    g.DrawLine(pen, cx + s * .05f, cy + s * .12f, cx + s * .14f, cy - s * .08f);
+                    g.DrawLine(pen, cx + s * .14f, cy - s * .08f, r - s * .16f, cy - s * .08f);
                     break;
                 case "gauge":
                     g.DrawArc(pen, l, t, s * .68f, s * .68f, 135, 270);
@@ -655,7 +676,7 @@ namespace PCOtimizador
             var opt = new Label { Text = "OTIMIZADOR", Font = titleFont, ForeColor = Accent, Location = new Point(34 + pcSize.Width + 12, 20), Size = optSize, AutoSize = false };
             var pro = new Label { Text = "PRO", Font = titleFont, ForeColor = TextMain, Location = new Point(34 + pcSize.Width + 12 + optSize.Width + 18, 20), Size = proSize, AutoSize = false };
             _chrome.Controls.Add(pc); _chrome.Controls.Add(opt); _chrome.Controls.Add(pro);
-            _heroSub = new Label { Text = T("header.dashboard"), Location = new Point(38, 66), AutoSize = true, ForeColor = Muted, Font = new Font("Segoe UI", 9.5f) };
+            _heroSub = new Label { Text = T("header.dashboard"), Location = new Point(38, 72), Size = new Size(520, 18), AutoSize = false, AutoEllipsis = true, ForeColor = Muted, Font = new Font("Segoe UI", 9.5f) };
             _chrome.Controls.Add(_heroSub);
             WireDrag(_chrome); WireDrag(pc); WireDrag(opt); WireDrag(pro);
 
@@ -718,6 +739,7 @@ namespace PCOtimizador
             _progressBox.Controls.Add(_taskLabel);
             _btnCancel = FlatBtn(0, 0, 92, 32, T("cancel"), Color.FromArgb(95, 29, 43));
             _btnCancel.Enabled = false;
+            _btnCancel.Visible = false;
             _btnCancel.ForeColor = Color.FromArgb(255, 190, 198);
             _btnCancel.Click += (s, e) => CancelRun();
             _progressBox.Controls.Add(_btnCancel);
@@ -726,12 +748,12 @@ namespace PCOtimizador
             _statsBox = new RoundPanel { BackColor = Card, BorderColor = Border };
             _content.Controls.Add(_statsBox);
             _diskIconHost = new Panel { BackColor = Color.Transparent };
-            _diskIconHost.Controls.Add(new IconCanvas("drive", 78) { AccentColor = Accent2, Dock = DockStyle.Fill });
+            _diskIconHost.Controls.Add(new IconCanvas("drive", 78) { AccentColor = Accent2, ShowTile = false, Dock = DockStyle.Fill });
             _statsBox.Controls.Add(_diskIconHost);
             _beforeAfter = new Label { Text = T("stats.empty"), ForeColor = TextMain, Font = new Font("Segoe UI Semibold", 13f), TextAlign = ContentAlignment.MiddleLeft };
             _statsBox.Controls.Add(_beforeAfter);
             _healthIconHost = new Panel { BackColor = Color.Transparent };
-            _healthIconHost.Controls.Add(new IconCanvas("heart", 78) { AccentColor = Accent, Dock = DockStyle.Fill });
+            _healthIconHost.Controls.Add(new IconCanvas("health", 78) { AccentColor = Accent, ShowTile = false, Dock = DockStyle.Fill });
             _statsBox.Controls.Add(_healthIconHost);
             _healthLabel = new Label { Text = T("health.empty"), ForeColor = Accent, Font = new Font("Segoe UI Semibold", 19f), TextAlign = ContentAlignment.MiddleLeft };
             _statsBox.Controls.Add(_healthLabel);
@@ -746,12 +768,12 @@ namespace PCOtimizador
             if (_content == null || _chrome == null) return;
             int w = Math.Max(600, _content.ClientSize.Width - 60);
             int h = Math.Max(520, _content.ClientSize.Height);
-            int gridHeight = Math.Max(220, Math.Min(285, h / 3));
+            int gridHeight = Math.Max(220, Math.Min(250, h / 3));
             int gridY = 105;
             int progressY = gridY + gridHeight + 20;
             int progressH = 154;
             int statsY = progressY + progressH + 18;
-            int statsH = Math.Max(118, h - statsY - 38);
+            int statsH = Math.Max(120, Math.Min(190, h - statsY - 68));
             bool dashboard = string.Equals(_activeNav, "inicio", StringComparison.OrdinalIgnoreCase);
             int pageHeight = dashboard ? gridHeight : Math.Max(220, h - gridY - 30);
             if (_presetGrid != null)
@@ -1249,6 +1271,7 @@ namespace PCOtimizador
             _running = true;
             _cancelRequested = false;
             _btnCancel.Enabled = true;
+            _btnCancel.Visible = true;
             _bar.Value = 0;
             _pctLabel.Text = "0%";
             _pctLabel.ForeColor = Accent;
@@ -1279,7 +1302,7 @@ namespace PCOtimizador
                     BeginInvoke(new Action(() =>
                     {
                         if (IsDisposed || !IsHandleCreated) return;
-                        _running = false; _btnCancel.Enabled = false;
+                        _running = false; _btnCancel.Enabled = false; _btnCancel.Visible = false;
                         if (_cancelRequested)
                         {
                             _taskLabel.Text = "Cancelado"; _pctLabel.ForeColor = Warn; LogLine("Execução cancelada pelo usuário.");
@@ -1299,7 +1322,7 @@ namespace PCOtimizador
                 }
                 catch (Exception ex)
                 {
-                    BeginInvoke(new Action(() => { _running = false; _btnCancel.Enabled = false; LogLine(ex.Message); MessageBox.Show(ex.Message + "\n\nSe o antivírus bloqueou, use Executar.bat.", "Erro"); }));
+                    BeginInvoke(new Action(() => { _running = false; _btnCancel.Enabled = false; _btnCancel.Visible = false; LogLine(ex.Message); MessageBox.Show(ex.Message + "\n\nSe o antivírus bloqueou, use Executar.bat.", "Erro"); }));
                 }
             });
         }

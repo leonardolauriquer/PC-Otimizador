@@ -88,13 +88,18 @@ namespace PCOtimizador
             }
 
             Check(progress.Bottom <= stats.Top, size + " progress and stats do not overlap");
+            Check(stats.Height <= 190, size + " stats panel has compact height");
             var bar = Field<Control>(form, "_bar");
             var pct = Field<Control>(form, "_pctLabel");
             var task = Field<Control>(form, "_taskLabel");
+            var cancel = Field<Control>(form, "_btnCancel");
             Check(Inside(bar.Bounds, progress.ClientRectangle), size + " progress bar is contained");
             Check(Inside(pct.Bounds, progress.ClientRectangle) && Inside(task.Bounds, progress.ClientRectangle), size + " progress labels are contained");
+            Check(cancel != null && !cancel.Visible, size + " idle cancel button is hidden");
 
             var chrome = Field<Panel>(form, "_chrome");
+            var heroSub = Field<Label>(form, "_heroSub");
+            Check(heroSub != null && heroSub.Top >= 70 && Inside(heroSub.Bounds, chrome.ClientRectangle), size + " header subtitle is readable and contained");
             int titleLabels = 0;
             int chromeButtons = 0;
             foreach (Control c in chrome.Controls)
