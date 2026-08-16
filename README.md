@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Linux-Bash-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux">
   <img src="https://img.shields.io/badge/macOS-Bash-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Android-Termux-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
-  <img src="https://img.shields.io/badge/v5.5-Auto--update-0d9488?style=for-the-badge" alt="v5.5">
+  <img src="https://img.shields.io/badge/v5.5.0-Hardening-0d9488?style=for-the-badge" alt="v5.5.0">
   <img src="https://img.shields.io/badge/Licença-MIT-22c55e?style=for-the-badge" alt="MIT">
 </p>
 
@@ -42,7 +42,7 @@ Detalhes: [`core/README.md`](core/README.md) · [`core/SECURITY.md`](core/SECURI
 
 ### Windows (recomendado)
 
-1. **[Download ZIP](https://github.com/leonardolauriquer/PC-Otimizador/archive/refs/heads/main.zip)** (ou Releases)
+1. **[Baixe a release mais recente](https://github.com/leonardolauriquer/PC-Otimizador/releases/latest)** (ZIP + `SHA256SUMS.txt`)
 2. Extraia → **`Executar.bat`** → UAC
 3. Digite **`1`** (Limpeza Segura) → **`E`**  
    Ou **`8`** = dry-run no menu `.bat` · **`H`** = Health Score
@@ -77,12 +77,26 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 
 ---
 
-## Novidades v5.5
+## Novidades v5.5.0
 
 | Recurso | Descrição |
 |---------|-----------|
-| **Auto-update validado** | Ao abrir (`Executar.bat` / `.exe`) consulta o GitHub e atualiza quando há release válida |
-| **SHA256 obrigatório** | Recusa releases sem `SHA256SUMS.txt` ou com hash inválido |
+| **Allowlist de limpeza** | Raízes, ancestrais, pastas pessoais e reparse points são recusados antes de qualquer exclusão |
+| **Risco aplicado ponta a ponta** | DNS, energia, rede, Lixeira, CleanMgr, Prefetch e upgrade exigem confirmação explícita |
+| **Auto-update fail-closed** | ZIP protegido contra traversal, staging privado, arquivos obrigatórios e versão do pacote validados |
+| **SHA256 obrigatório** | Recusa releases sem `SHA256SUMS.txt` ou com hash ausente/inválido |
+| **Presets seguros revisados** | A Limpeza Segura não esvazia a Lixeira, não executa CleanMgr e não força o fechamento de aplicativos |
+| **Adapters Unix mais restritos** | Linux/macOS limpam apenas temporários antigos do usuário; Termux permanece no sandbox do próprio app |
+| **CI e auditoria** | Testes de engine, testes estáticos, sintaxe Bash, JSON e pacote de release são verificados no CI |
+
+> O executável distribuído não possui assinatura Authenticode. Se o SmartScreen alertar, use `Executar.bat` ou verifique o hash da release antes de executar.
+
+### Política de risco
+
+- **Seguro:** caches e temporários regeneráveis dentro da allowlist.
+- **Cautela:** ajustes reversíveis de rede, aplicativos e manutenção do sistema.
+- **Alto risco:** alterações de DNS/energia/IP, Winsock/TCP-IP, Prefetch, CleanMgr, Lixeira, bloatware e upgrade. Esses itens nunca são executados silenciosamente.
+- **Dry-run:** use a opção `8` ou `-DryRun` para estimar e revisar sem apagar nada.
 
 ---
 
@@ -146,6 +160,7 @@ R Remover agenda     H Health   W Whitelist   B Bloat   G GUI   0 Sair
 | `android/termux-pc-otimizador.sh` | Termux |
 | `ios/README.md` | Escopo iOS |
 | `Tests/Engine.Tests.ps1` | Testes Windows |
+| `Tests/Static.Tests.ps1` | Testes estáticos de segurança e regressão |
 
 **Whitelist (Windows):** `Documentos\PC-Otimizador-Logs\whitelist.txt`  
 **Logs (Windows):** `Documentos\PC-Otimizador-Logs\sessao-*.txt`
@@ -167,13 +182,14 @@ R Remover agenda     H Health   W Whitelist   B Bloat   G GUI   0 Sair
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Tests\Engine.Tests.ps1
+powershell -ExecutionPolicy Bypass -File .\Tests\Static.Tests.ps1
 powershell -ExecutionPolicy Bypass -File .\Compilar-EXE.ps1
 ```
 
 ```bash
-git tag v5.3.0
-git push origin v5.3.0
-# Actions: testes → ZIP + SHA256SUMS.txt
+git tag v5.5.0
+git push origin v5.5.0
+# Actions: testes Windows + smoke Bash → ZIP + SHA256SUMS.txt
 ```
 
 ---
