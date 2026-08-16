@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g. v5.5.1)'
+        description: 'Version tag (e.g. v5.5.2)'
         required: true
-        default: 'v5.5.1'
+        default: 'v5.5.2'
 
 permissions:
   contents: read
@@ -24,6 +24,7 @@ jobs:
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests\Engine.Tests.ps1
           powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests\Static.Tests.ps1
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests\Gui.Layout.Tests.ps1
 
   shell-smoke:
     runs-on: ubuntu-latest

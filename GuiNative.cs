@@ -328,6 +328,10 @@ namespace PCOtimizador
         Panel _diskIconHost;
         Panel _healthIconHost;
         TableLayoutPanel _presetGrid;
+        FlowLayoutPanel _toolsFlow;
+        Panel _helpScroll;
+        RoundPanel _helpBox;
+        Label _helpLabel;
         TextBox _log;
         readonly List<Panel> _navBtns = new List<Panel>();
         readonly Dictionary<string, Panel> _pages = new Dictionary<string, Panel>(StringComparer.OrdinalIgnoreCase);
@@ -381,7 +385,10 @@ namespace PCOtimizador
             Text = "PC Otimizador Pro";
             var workArea = Screen.PrimaryScreen != null ? Screen.PrimaryScreen.WorkingArea : new Rectangle(0, 0, 1360, 860);
             Size = new Size(Math.Max(980, Math.Min(1360, workArea.Width - 24)), Math.Max(680, Math.Min(860, workArea.Height - 24)));
-            MinimumSize = new Size(1080, 720);
+            // Keep the full dashboard usable on compact laptop displays.  The
+            // layout below reflows the inner pages and keeps the four presets
+            // equal-width, so a 980x680 window is still a supported size.
+            MinimumSize = new Size(980, 680);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.None;
             MaximizeBox = true;
@@ -457,11 +464,12 @@ namespace PCOtimizador
             _content.Controls.Add(_chrome);
 
             var titleFont = new Font("Segoe UI Semibold", 32f);
-            var pc = new Label { Text = "PC", Font = titleFont, ForeColor = TextMain, Location = new Point(34, 20), AutoSize = true };
-            var opt = new Label { Text = "OTIMIZADOR", Font = titleFont, ForeColor = Accent, Location = new Point(0, 20), AutoSize = true };
-            var pro = new Label { Text = "PRO", Font = titleFont, ForeColor = TextMain, Location = new Point(0, 20), AutoSize = true };
-            opt.Left = pc.Right + 8;
-            pro.Left = opt.Right + 8;
+            var pcSize = TextRenderer.MeasureText("PC", titleFont);
+            var optSize = TextRenderer.MeasureText("OTIMIZADOR", titleFont);
+            var proSize = TextRenderer.MeasureText("PRO", titleFont);
+            var pc = new Label { Text = "PC", Font = titleFont, ForeColor = TextMain, Location = new Point(34, 20), Size = pcSize, AutoSize = false };
+            var opt = new Label { Text = "OTIMIZADOR", Font = titleFont, ForeColor = Accent, Location = new Point(34 + pcSize.Width + 8, 20), Size = optSize, AutoSize = false };
+            var pro = new Label { Text = "PRO", Font = titleFont, ForeColor = TextMain, Location = new Point(34 + pcSize.Width + 8 + optSize.Width + 8, 20), Size = proSize, AutoSize = false };
             _chrome.Controls.Add(pc); _chrome.Controls.Add(opt); _chrome.Controls.Add(pro);
             _heroSub = new Label { Text = "Dashboard · Limpeza segura · Nunca apaga Documentos/Fotos/Downloads", Location = new Point(38, 66), AutoSize = true, ForeColor = Muted, Font = new Font("Segoe UI", 9.5f) };
             _chrome.Controls.Add(_heroSub);
@@ -564,8 +572,11 @@ namespace PCOtimizador
             {
                 int cellWidth = Math.Max(160, w / 4);
                 int gridWidth = cellWidth * 4;
-                int gridLeft = 30 + Math.Max(0, (w - gridWidth) / 2);
-                _presetGrid.Bounds = new Rectangle(gridLeft, gridY, gridWidth, gridHeight);
+                int gridLeft = Math.Max(0, (w - gridWidth) / 2);
+                // _presetGrid is a child of the page, which already starts at gridY.
+                // Keep its coordinates relative to that page; applying gridY twice
+                // makes the progress panel overlap and hide the card bottoms.
+                _presetGrid.Bounds = new Rectangle(gridLeft, 0, gridWidth, gridHeight);
                 for (int i = 0; i < _presetGrid.ColumnStyles.Count; i++)
                 {
                     _presetGrid.ColumnStyles[i].SizeType = SizeType.Absolute;
@@ -573,6 +584,22 @@ namespace PCOtimizador
                 }
             }
             foreach (var kv in _pages) kv.Value.Bounds = new Rectangle(30, gridY, w, gridHeight);
+            if (_toolsFlow != null)
+            {
+                var toolsPage = _pages["ferramentas"];
+                _toolsFlow.Bounds = new Rectangle(0, 92, toolsPage.ClientSize.Width, Math.Max(90, toolsPage.ClientSize.Height - 92));
+            }
+            if (_helpScroll != null)
+            {
+                var helpPage = _pages["ajuda"];
+                _helpScroll.Bounds = new Rectangle(0, 0, helpPage.ClientSize.Width, helpPage.ClientSize.Height);
+                // The fixed-height guide can require a vertical scrollbar. Leave
+                // its gutter in the width calculation so the card never clips
+                // horizontally when the window is compact.
+                int helpWidth = Math.Max(260, helpPage.ClientSize.Width - 42);
+                _helpBox.Bounds = new Rectangle(12, 12, helpWidth, 320);
+                _helpLabel.Bounds = new Rectangle(26, 24, Math.Max(208, helpWidth - 52), 270);
+            }
             if (_progressBox != null)
             {
                 _progressBox.Bounds = new Rectangle(30, progressY, w, progressH);
@@ -744,17 +771,25 @@ namespace PCOtimizador
             _content.Controls.Add(page); _pages["ferramentas"] = page;
             page.Controls.Add(new Label { Text = "Ferramentas", Font = new Font("Segoe UI Semibold", 22f), ForeColor = TextMain, Location = new Point(10, 18), AutoSize = true });
             page.Controls.Add(new Label { Text = "Ações que medem ou configuram — sem limpeza agressiva.", ForeColor = Muted, Location = new Point(12, 58), AutoSize = true });
-            int x = 12, y = 104;
-            page.Controls.Add(ToolCard(ref x, y, "Health Score", "Nota 0–100 do PC", "shield", () => RunCli("-Mode health -AutoYes")));
-            page.Controls.Add(ToolCard(ref x, y, "Estimar MB", "Simula quanto liberaria", "drive", () => RunCli("-Mode scan -AutoYes")));
-            x = 12; y = 214;
-            page.Controls.Add(ToolCard(ref x, y, "Agendar", "Domingo 10h · SAFE", "power", () => ScheduleWeekly()));
-            page.Controls.Add(ToolCard(ref x, y, "Abrir logs", "Histórico das sessões", "tools", OpenLogsFolder));
+            _toolsFlow = new FlowLayoutPanel
+            {
+                BackColor = Color.Transparent,
+                AutoScroll = true,
+                WrapContents = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                Padding = new Padding(4),
+                Margin = new Padding(0)
+            };
+            _toolsFlow.Controls.Add(ToolCard("Health Score", "Nota 0–100 do PC", "shield", () => RunCli("-Mode health -AutoYes")));
+            _toolsFlow.Controls.Add(ToolCard("Estimar MB", "Simula quanto liberaria", "drive", () => RunCli("-Mode scan -AutoYes")));
+            _toolsFlow.Controls.Add(ToolCard("Agendar", "Domingo 10h · SAFE", "power", () => ScheduleWeekly()));
+            _toolsFlow.Controls.Add(ToolCard("Abrir logs", "Histórico das sessões", "tools", OpenLogsFolder));
+            page.Controls.Add(_toolsFlow);
         }
 
-        RoundPanel ToolCard(ref int x, int y, string title, string sub, string icon, Action act)
+        RoundPanel ToolCard(string title, string sub, string icon, Action act)
         {
-            var p = new RoundPanel { Location = new Point(x, y), Size = new Size(280, 90), BackColor = Card, BorderColor = Border, Radius = 12, Cursor = Cursors.Hand };
+            var p = new RoundPanel { Size = new Size(280, 90), Margin = new Padding(8), BackColor = Card, BorderColor = Border, Radius = 12, Cursor = Cursors.Hand };
             var i = new IconCanvas(icon, 42) { AccentColor = Accent, Location = new Point(16, 23) };
             var t = new Label { Text = title, Font = new Font("Segoe UI Semibold", 12f), ForeColor = Accent, Location = new Point(72, 18), AutoSize = true };
             var s = new Label { Text = sub, ForeColor = Muted, Location = new Point(72, 49), AutoSize = true };
@@ -763,16 +798,19 @@ namespace PCOtimizador
             p.Click += click; i.Click += click; t.Click += click; s.Click += click;
             p.MouseEnter += (o, e) => { p.BackColor = CardHi; p.BorderColor = Accent; };
             p.MouseLeave += (o, e) => { p.BackColor = Card; p.BorderColor = Border; };
-            Tip(p, title + "\n" + sub); x += 300; return p;
+            Tip(p, title + "\n" + sub);
+            return p;
         }
 
         void BuildPageAjuda()
         {
             var page = new Panel { BackColor = Bg, Visible = false };
             _content.Controls.Add(page); _pages["ajuda"] = page;
-            var box = new RoundPanel { BackColor = Card, BorderColor = Border, Radius = 14, Location = new Point(8, 12), Size = new Size(720, 320) };
-            page.Controls.Add(box);
-            var help = new Label
+            _helpScroll = new Panel { BackColor = Bg, AutoScroll = true };
+            _helpBox = new RoundPanel { BackColor = Card, BorderColor = Border, Radius = 14 };
+            _helpScroll.Controls.Add(_helpBox);
+            page.Controls.Add(_helpScroll);
+            _helpLabel = new Label
             {
                 Text = "GUIA RÁPIDO\n\n" +
                        "1. Ative DRY-RUN e rode Limpeza Segura para revisar.\n" +
@@ -782,9 +820,9 @@ namespace PCOtimizador
                        "Nunca apagamos: Documentos, Fotos, Vídeos, Música, Desktop, Downloads e OneDrive.\n" +
                        "Logs: Documentos\\PC-Otimizador-Logs\n\n" +
                        "Na dúvida, use apenas Limpeza Segura.",
-                Location = new Point(26, 24), Size = new Size(660, 270), ForeColor = TextMain, Font = new Font("Segoe UI", 10.5f)
+                ForeColor = TextMain, Font = new Font("Segoe UI", 10.5f)
             };
-            box.Controls.Add(help);
+            _helpBox.Controls.Add(_helpLabel);
         }
 
         void ShowPage(string name)

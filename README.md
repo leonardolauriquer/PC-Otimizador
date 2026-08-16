@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Linux-Bash-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux">
   <img src="https://img.shields.io/badge/macOS-Bash-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Android-Termux-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
-  <img src="https://img.shields.io/badge/v5.5.1-Hardening-0d9488?style=for-the-badge" alt="v5.5.1">
+  <img src="https://img.shields.io/badge/v5.5.2-Hardening-0d9488?style=for-the-badge" alt="v5.5.2">
   <img src="https://img.shields.io/badge/Licença-MIT-22c55e?style=for-the-badge" alt="MIT">
 </p>
 
@@ -77,11 +77,12 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 
 ---
 
-## Novidades v5.5.1
+## Novidades v5.5.2
 
 | Recurso | Descrição |
 |---------|-----------|
 | **Dashboard visual redesenhado** | GUI nativa com tema neon, sidebar com ícones, cards responsivos, progresso com glow e métricas antes/depois |
+| **Layout responsivo corrigido** | Coordenadas relativas por página, colunas com largura estável, título medido por fonte e páginas internas com fluxo/scroll |
 | **Allowlist de limpeza** | Raízes, ancestrais, pastas pessoais e reparse points são recusados antes de qualquer exclusão |
 | **Risco aplicado ponta a ponta** | DNS, energia, rede, Lixeira, CleanMgr, Prefetch e upgrade exigem confirmação explícita |
 | **Auto-update fail-closed** | ZIP protegido contra traversal, staging privado, arquivos obrigatórios e versão do pacote validados |
@@ -188,8 +189,8 @@ powershell -ExecutionPolicy Bypass -File .\Compilar-EXE.ps1
 ```
 
 ```bash
-git tag v5.5.1
-git push origin v5.5.1
+git tag v5.5.2
+git push origin v5.5.2
 # Actions: testes Windows + smoke Bash → ZIP + SHA256SUMS.txt
 ```
 

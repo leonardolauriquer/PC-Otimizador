@@ -51,6 +51,11 @@ Assert-Contains $gui 'close.Click += (s, e) => Close' 'GUI close handler'
 Assert-Contains $gui '_btnCancel.Click += (s, e) => CancelRun' 'GUI cancel handler'
 Assert-Contains $gui 'p.Click += click; iconPanel.Click += click; titleLabel.Click += click' 'GUI preset card handlers'
 Assert-Contains $gui 'p.Click += click; i.Click += click; t.Click += click; s.Click += click' 'GUI tool card handlers'
+Assert-Contains $gui 'TextRenderer.MeasureText' 'GUI stable title measurement'
+Assert-Contains $gui 'int gridLeft = Math.Max(0, (w - gridWidth) / 2)' 'GUI page-relative grid placement'
+Assert-Contains $gui 'FlowLayoutPanel' 'GUI responsive tools flow'
+Assert-Contains $gui 'AutoScroll = true' 'GUI scrollable inner pages'
+Assert-Contains $gui '_helpScroll' 'GUI responsive help page'
 
 if ($failed -eq 0) { Write-Host "`nALL STATIC TESTS PASSED" -ForegroundColor Green; exit 0 }
 Write-Host "`n$failed FAILED" -ForegroundColor Red
