@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Linux-Bash-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux">
   <img src="https://img.shields.io/badge/macOS-Bash-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Android-Termux-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
-  <img src="https://img.shields.io/badge/v5.6.0-Device%20Inspector-0d9488?style=for-the-badge" alt="v5.6.0">
+  <img src="https://img.shields.io/badge/v5.6.1-Visual%20Consistency-0d9488?style=for-the-badge" alt="v5.6.1">
   <img src="https://img.shields.io/badge/Licença-MIT-22c55e?style=for-the-badge" alt="MIT">
 </p>
 
@@ -77,7 +77,13 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 
 ---
 
-## Novidades v5.6.0
+## Novidades v5.6.1
+
+- **Controle de simulação redesenhado:** componente retangular integrado ao visual dos painéis, com barra de estado, chave liga/desliga e realce ciano no hover, foco e estado ativo.
+- **Botões coerentes:** seletores PT/EN, ações dos cartões e botões das páginas agora compartilham borda, cantos, foco e hover do mesmo sistema visual.
+- **Acessibilidade:** a simulação voltou à ordem de tabulação e todos os controles personalizados exibem foco perceptível.
+
+### Incluído desde v5.6.0
 
 | Recurso | Descrição |
 |---------|-----------|
@@ -199,8 +205,8 @@ powershell -ExecutionPolicy Bypass -File .\Compilar-EXE.ps1
 ```
 
 ```bash
-git tag v5.6.0
-git push origin v5.6.0
+git tag v5.6.1
+git push origin v5.6.1
 # Actions: testes Windows + smoke Bash → ZIP + SHA256SUMS.txt
 ```
 

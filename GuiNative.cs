@@ -242,8 +242,9 @@ namespace PCOtimizador
 
     sealed class TogglePill : CheckBox
     {
-        static readonly Color Off = Color.FromArgb(21, 30, 44);
+        static readonly Color Off = Color.FromArgb(10, 24, 35);
         static readonly Color On = Color.FromArgb(0, 143, 132);
+        bool _hover;
         public TogglePill()
         {
             Appearance = Appearance.Button;
@@ -254,21 +255,65 @@ namespace PCOtimizador
             Cursor = Cursors.Hand;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
                       ControlStyles.OptimizedDoubleBuffer, true);
+            MouseEnter += (s, e) => { _hover = true; Invalidate(); };
+            MouseLeave += (s, e) => { _hover = false; Invalidate(); };
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             var rect = new Rectangle(0, 0, Width - 1, Height - 1);
-            using (var path = RoundPanel.RoundRect(rect, Height / 2))
-            using (var brush = new SolidBrush(Checked ? On : Off))
-            using (var pen = new Pen(Checked ? Color.FromArgb(0, 229, 192) : Color.FromArgb(69, 85, 105), 1f))
+            var border = Checked || _hover ? Color.FromArgb(0, 229, 192) : Color.FromArgb(45, 74, 90);
+            using (var path = RoundPanel.RoundRect(rect, 7))
+            using (var brush = new SolidBrush(Checked ? Color.FromArgb(8, 45, 48) : Off))
+            using (var pen = new Pen(border, 1f))
             {
                 e.Graphics.FillPath(brush, path);
                 e.Graphics.DrawPath(pen, path);
             }
-            TextRenderer.DrawText(e.Graphics, Text, Font, rect, Checked ? Color.White : Color.FromArgb(180, 196, 210),
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            using (var accent = new SolidBrush(Checked ? Color.FromArgb(0, 229, 192) : Color.FromArgb(64, 91, 106)))
+                e.Graphics.FillRectangle(accent, 0, 7, 3, Height - 14);
+            var switchRect = new Rectangle(Width - 37, (Height - 16) / 2, 29, 16);
+            using (var switchPath = RoundPanel.RoundRect(switchRect, 8))
+            using (var switchBrush = new SolidBrush(Checked ? On : Color.FromArgb(34, 50, 64)))
+                e.Graphics.FillPath(switchBrush, switchPath);
+            int knobX = Checked ? switchRect.Right - 13 : switchRect.Left + 3;
+            using (var knob = new SolidBrush(Checked ? Color.White : Color.FromArgb(150, 170, 184)))
+                e.Graphics.FillEllipse(knob, knobX, switchRect.Top + 3, 10, 10);
+            var textRect = new Rectangle(11, 0, Width - 54, Height);
+            TextRenderer.DrawText(e.Graphics, Text, Font, textRect, Checked ? Color.White : Color.FromArgb(190, 207, 218),
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+        }
+    }
+
+    sealed class ThemedButton : Button
+    {
+        public Color BorderColor = Color.FromArgb(45, 90, 105);
+        public Color HoverColor = Color.FromArgb(20, 48, 60);
+        public int CornerRadius = 6;
+        bool _hover;
+        public ThemedButton()
+        {
+            FlatStyle = FlatStyle.Flat;
+            FlatAppearance.BorderSize = 0;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            MouseEnter += (s, e) => { _hover = true; Invalidate(); };
+            MouseLeave += (s, e) => { _hover = false; Invalidate(); };
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            var rect = new Rectangle(0, 0, Width - 1, Height - 1);
+            using (var path = RoundPanel.RoundRect(rect, CornerRadius))
+            using (var brush = new SolidBrush(_hover ? HoverColor : BackColor))
+            using (var pen = new Pen(Focused ? Color.FromArgb(0, 229, 192) : BorderColor))
+            {
+                e.Graphics.FillPath(brush, path);
+                e.Graphics.DrawPath(pen, path);
+            }
+            TextRenderer.DrawText(e.Graphics, Text, Font, rect, Enabled ? ForeColor : Color.FromArgb(90, 110, 122),
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
         }
     }
 
@@ -760,7 +805,7 @@ namespace PCOtimizador
             _chrome.Controls.Add(_heroSub);
             WireDrag(_chrome); WireDrag(pc); WireDrag(opt); WireDrag(pro);
 
-            _dry = new TogglePill { Text = T("dryrun"), Location = new Point(0, 20), Size = new Size(104, 30), Anchor = AnchorStyles.Top | AnchorStyles.Right, TabStop = false };
+            _dry = new TogglePill { Text = T("dryrun"), Location = new Point(0, 20), Size = new Size(132, 32), Anchor = AnchorStyles.Top | AnchorStyles.Right, TabStop = true, Font = new Font("Segoe UI Semibold", 8f) };
             _chrome.Controls.Add(_dry);
             Tip(_dry, "Simula a limpeza sem apagar nada. Ideal na primeira vez.");
 
@@ -1005,8 +1050,8 @@ namespace PCOtimizador
             var languagePanel = new Panel { Dock = DockStyle.Bottom, Height = 54, BackColor = PanelBg };
             _languageCaption = Register(new Label { ForeColor = Muted, Font = new Font("Segoe UI Semibold", 8f), Location = new Point(20, 12), AutoSize = true }, "language.label");
             languagePanel.Controls.Add(_languageCaption);
-            _languagePtButton = new Button { Text = "PT", Location = new Point(88, 7), Size = new Size(56, 28), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(0, 92, 91), ForeColor = Color.White, Font = new Font("Segoe UI Semibold", 8.5f), Cursor = Cursors.Hand };
-            _languageEnButton = new Button { Text = "EN", Location = new Point(149, 7), Size = new Size(56, 28), FlatStyle = FlatStyle.Flat, BackColor = Card, ForeColor = Muted, Font = new Font("Segoe UI Semibold", 8.5f), Cursor = Cursors.Hand };
+            _languagePtButton = new ThemedButton { Text = "PT", Location = new Point(88, 7), Size = new Size(56, 28), BackColor = Color.FromArgb(0, 92, 91), ForeColor = Color.White, Font = new Font("Segoe UI Semibold", 8.5f), Cursor = Cursors.Hand };
+            _languageEnButton = new ThemedButton { Text = "EN", Location = new Point(149, 7), Size = new Size(56, 28), BackColor = Card, ForeColor = Muted, Font = new Font("Segoe UI Semibold", 8.5f), Cursor = Cursors.Hand };
             _languagePtButton.FlatAppearance.BorderColor = Border;
             _languageEnButton.FlatAppearance.BorderColor = Border;
             _languagePtButton.ForeColor = Color.White;
@@ -1123,7 +1168,7 @@ namespace PCOtimizador
             var icon = new IconCanvas(spec.Icon, 52) { AccentColor = spec.Accent, Location = new Point(18, 18) };
             var title = Register(new Label { Font = new Font("Segoe UI Semibold", 11f), ForeColor = TextMain, Location = new Point(84, 18), Size = new Size(198, 25), AutoEllipsis = true }, spec.TitleKey);
             var sub = Register(new Label { Font = new Font("Segoe UI", 8.8f), ForeColor = Muted, Location = new Point(84, 47), Size = new Size(198, 34), AutoEllipsis = true }, spec.SubKey);
-            var run = Register(new Button { FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(15, 35, 46), ForeColor = spec.Accent, Font = new Font("Segoe UI Semibold", 8f), Location = new Point(84, 91), Size = new Size(126, 27), Cursor = Cursors.Hand }, spec.ButtonKey);
+            var run = Register(new ThemedButton { BackColor = Color.FromArgb(15, 35, 46), ForeColor = spec.Accent, BorderColor = Color.FromArgb(45, 90, 105), Font = new Font("Segoe UI Semibold", 8f), Location = new Point(84, 91), Size = new Size(126, 27), Cursor = Cursors.Hand }, spec.ButtonKey);
             run.FlatAppearance.BorderColor = Color.FromArgb(45, 90, 105);
             p.Controls.Add(rail); p.Controls.Add(icon); p.Controls.Add(title); p.Controls.Add(sub); p.Controls.Add(run);
             EventHandler click = (o, e) => { if (!_running && spec.Action != null) spec.Action(); };
@@ -1436,10 +1481,7 @@ namespace PCOtimizador
 
         Button FlatBtn(int x, int y, int w, int h, string text, Color bg)
         {
-            var b = new Button { Text = text, Location = new Point(x, y), Size = new Size(w, h), FlatStyle = FlatStyle.Flat, BackColor = bg, ForeColor = TextMain, Font = new Font("Segoe UI Semibold", 8.5f), Cursor = Cursors.Hand };
-            b.FlatAppearance.BorderSize = 0;
-            b.MouseEnter += (s, e) => b.BackColor = Color.FromArgb(Math.Min(255, bg.R + 16), Math.Min(255, bg.G + 16), Math.Min(255, bg.B + 16));
-            b.MouseLeave += (s, e) => b.BackColor = bg;
+            var b = new ThemedButton { Text = text, Location = new Point(x, y), Size = new Size(w, h), BackColor = bg, HoverColor = Color.FromArgb(Math.Min(255, bg.R + 16), Math.Min(255, bg.G + 16), Math.Min(255, bg.B + 16)), ForeColor = TextMain, Font = new Font("Segoe UI Semibold", 8.5f), Cursor = Cursors.Hand };
             return b;
         }
 
