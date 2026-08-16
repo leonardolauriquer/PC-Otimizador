@@ -19,6 +19,7 @@ $update = Get-Content -Raw (Join-Path $root 'Update.ps1')
 $linux = Get-Content -Raw (Join-Path $root 'linux\pc-otimizador.sh')
 $macos = Get-Content -Raw (Join-Path $root 'macos\pc-otimizador.sh')
 $android = Get-Content -Raw (Join-Path $root 'android\termux-pc-otimizador.sh')
+$gui = Get-Content -Raw (Join-Path $root 'GuiNative.cs')
 $json = Get-Content -Raw (Join-Path $root 'core\presets.json') | ConvertFrom-Json
 
 Assert-Contains $engine 'function Test-CleanupTarget' 'Windows cleanup target guard'
@@ -35,6 +36,12 @@ Assert-Contains $android 'fora do sandbox Termux' 'Termux sandbox guard'
 Assert-NotContains (($json.windows.safe -join '|')) 'recycle' 'Windows safe excludes recycle'
 Assert-NotContains (($json.windows.safe -join '|')) 'cleanmgr' 'Windows safe excludes CleanMgr'
 Assert-Contains ([string]$json.risk_actions.upgrade) 'high' 'Upgrade risk is high'
+Assert-Contains $gui 'class GlowProgress' 'GUI glow progress control'
+Assert-Contains $gui 'class IconCanvas' 'GUI vector icon system'
+Assert-Contains $gui 'TableLayoutPanel' 'GUI responsive preset grid'
+Assert-Contains $gui 'INICIALIZAÇÃO' 'GUI initialization navigation'
+Assert-Contains $gui 'CONFIGURAÇÕES' 'GUI settings navigation'
+Assert-Contains $gui 'FormBorderStyle = FormBorderStyle.None' 'GUI custom chrome'
 
 if ($failed -eq 0) { Write-Host "`nALL STATIC TESTS PASSED" -ForegroundColor Green; exit 0 }
 Write-Host "`n$failed FAILED" -ForegroundColor Red
