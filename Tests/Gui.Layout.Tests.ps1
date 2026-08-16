@@ -6,7 +6,7 @@ if (-not (Test-Path $csc)) { throw "C# compiler not found: $csc" }
 $exe = Join-Path ([IO.Path]::GetTempPath()) ("pc-otimizador-gui-layout-{0}.exe" -f ([guid]::NewGuid().ToString('N')))
 try {
   & $csc /nologo /target:exe /optimize+ /platform:anycpu /main:PCOtimizador.GuiLayoutTests `
-    /reference:System.Windows.Forms.dll /reference:System.Drawing.dll `
+    /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Management.dll `
     "/out:$exe" (Join-Path $root 'GuiNative.cs') (Join-Path $root 'Tests\Gui.Layout.Tests.cs')
   if ($LASTEXITCODE -ne 0) { throw 'GUI layout test compilation failed' }
   & $exe

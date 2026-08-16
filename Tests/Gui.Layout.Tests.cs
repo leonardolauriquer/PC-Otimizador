@@ -95,6 +95,8 @@ namespace PCOtimizador
             var cancel = Field<Control>(form, "_btnCancel");
             Check(Inside(bar.Bounds, progress.ClientRectangle), size + " progress bar is contained");
             Check(Inside(pct.Bounds, progress.ClientRectangle) && Inside(task.Bounds, progress.ClientRectangle), size + " progress labels are contained");
+            var percentTextSize = TextRenderer.MeasureText(pct.Text, pct.Font, new Size(pct.Width, Int32.MaxValue), TextFormatFlags.NoPadding);
+            Check(percentTextSize.Height <= pct.Height, size + " progress percentage text is not clipped");
             Check(cancel != null && !cancel.Visible, size + " idle cancel button is hidden");
 
             var chrome = Field<Panel>(form, "_chrome");
@@ -113,6 +115,17 @@ namespace PCOtimizador
             }
             Check(titleLabels == 3, size + " title has three stable segments");
             Check(chromeButtons == 3, size + " custom chrome has min/max/close controls");
+            var dryRun = Field<Control>(form, "_dry");
+            Control rightmostTitle = null;
+            foreach (Control c in chrome.Controls)
+            {
+                if (c is Label && (c.Text == "PC" || c.Text == "OTIMIZADOR" || c.Text == "PRO"))
+                    if (rightmostTitle == null || c.Right > rightmostTitle.Right) rightmostTitle = c;
+            }
+            Check(dryRun != null && rightmostTitle != null && !dryRun.Bounds.IntersectsWith(rightmostTitle.Bounds), size + " simulation toggle clears the title");
+            bool clearsChromeButtons = dryRun != null;
+            foreach (Control c in chrome.Controls) if (c is Button && dryRun != null) clearsChromeButtons = clearsChromeButtons && !dryRun.Bounds.IntersectsWith(c.Bounds);
+            Check(clearsChromeButtons, size + " simulation toggle clears window controls");
 
             var tools = Field<FlowLayoutPanel>(form, "_toolsFlow");
             Check(tools != null && tools.AutoScroll && tools.WrapContents, size + " tools page is responsive and scrollable");
@@ -121,10 +134,23 @@ namespace PCOtimizador
             var helpBox = Field<Control>(form, "_helpBox");
             bool helpFitsHorizontally = helpScroll != null && helpBox != null && helpBox.Left >= 0 && helpBox.Right <= helpScroll.ClientSize.Width;
             Check(helpScroll != null && helpScroll.AutoScroll && helpFitsHorizontally, size + " help page is contained and scrollable");
+            Check(helpScroll != null && helpScroll.Top >= 92, size + " help content does not cover settings heading");
 
             var nav = Field<IList>(form, "_navBtns");
-            Check(nav != null && nav.Count == 7, size + " sidebar navigation is complete");
-            Check(pageMap.Count == 7, size + " has seven distinct sidebar pages");
+            Check(nav != null && nav.Count == 8, size + " sidebar navigation is complete");
+            Check(pageMap.Count == 8, size + " has eight distinct sidebar pages");
+            if (nav != null)
+            {
+                Panel settingsNav = null;
+                foreach (object item in nav)
+                {
+                    var panel = item as Panel;
+                    if (panel != null && string.Equals(panel.Tag as string, "configuracoes", StringComparison.Ordinal)) settingsNav = panel;
+                }
+                if (settingsNav != null)
+                    typeof(Control).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(settingsNav, new object[] { EventArgs.Empty });
+                Check(settingsNav != null && Field<string>(form, "_activeNav") == "configuracoes", size + " settings navigation opens settings page");
+            }
             foreach (string featurePageName in new[] { "limpeza", "desempenho", "internet", "inicializacao" })
             {
                 var featurePage = pageMap[featurePageName] as Panel;
@@ -134,35 +160,42 @@ namespace PCOtimizador
                         if (child is FlowLayoutPanel && string.Equals(child.Tag as string, "feature-flow", StringComparison.Ordinal)) featureFlow = (FlowLayoutPanel)child;
                 Check(featureFlow != null && featureFlow.AutoScroll && featureFlow.Controls.Count == 3, size + " page " + featurePageName + " has functional cards");
             }
-            foreach (string pageName in new[] { "inicio", "limpeza", "desempenho", "internet", "inicializacao", "ferramentas", "configuracoes" })
+            var deviceFlow = Field<FlowLayoutPanel>(form, "_deviceFlow");
+            Check(deviceFlow != null && deviceFlow.AutoScroll && deviceFlow.Controls.Count == 8, size + " device page has eight hardware sections");
+            foreach (string pageName in new[] { "inicio", "limpeza", "desempenho", "internet", "inicializacao", "ferramentas", "dispositivo", "configuracoes" })
             {
                 InvokePage(form, pageName);
-                string expected = pageName == "inicio" ? "Dashboard" :
+                string expected = pageName == "inicio" ? "Painel" :
                     (pageName == "limpeza" ? "Limpeza" :
                     (pageName == "desempenho" ? "Desempenho" :
                     (pageName == "internet" ? "Internet" :
                     (pageName == "inicializacao" ? "Inicialização" :
-                    (pageName == "ferramentas" ? "Ferramentas" : "Configurações")))));
+                    (pageName == "ferramentas" ? "Ferramentas" :
+                    (pageName == "dispositivo" ? "Dispositivo" : "Configurações"))))));
                 var hero = Field<Label>(form, "_heroSub");
                 Check(hero != null && hero.Text.StartsWith(expected, StringComparison.Ordinal), size + " page switch " + pageName);
                 var progressPanel = Field<Control>(form, "_progressBox");
                 if (pageName != "inicio") Check(progressPanel != null && !progressPanel.Visible, size + " dashboard chrome hidden on " + pageName);
             }
-            var language = Field<ComboBox>(form, "_languageCombo");
-            Check(language != null && language.Items.Count == 2, size + " language selector has two languages");
-            if (language != null)
+            var languagePt = Field<Button>(form, "_languagePtButton");
+            var languageEn = Field<Button>(form, "_languageEnButton");
+            Check(languagePt != null && languageEn != null, size + " language selector has PT and EN buttons");
+            if (languagePt != null && languageEn != null)
             {
-                language.SelectedIndex = 1;
+                typeof(Button).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(languageEn, new object[] { EventArgs.Empty });
                 var localized = Field<IDictionary>(form, "_localized");
                 var homeControls = localized == null ? null : localized["nav.inicio"] as IList;
                 var homeLabel = homeControls == null || homeControls.Count == 0 ? null : homeControls[0] as Label;
                 Check(homeLabel != null && homeLabel.Text == "HOME", size + " switches to English");
+                Check(form.Text == "PC Optimizer Pro" && Field<Control>(form, "_dry").Text == "DRY-RUN", size + " English mode localizes title and simulation toggle");
                 var safeControls = localized == null ? null : localized["card.safe.title"] as IList;
                 bool allSafeEnglish = safeControls != null && safeControls.Count >= 2;
                 if (allSafeEnglish) foreach (Control safe in safeControls) allSafeEnglish = allSafeEnglish && safe.Text == "SAFE CLEANUP";
                 Check(allSafeEnglish, size + " translates repeated dashboard cards");
-                language.SelectedIndex = 0;
+                typeof(Button).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(languagePt, new object[] { EventArgs.Empty });
                 Check(homeLabel != null && homeLabel.Text == "INÍCIO", size + " switches back to Portuguese");
+                Check(form.Text == "PC Otimizador Pro" && Field<Control>(form, "_dry").Text == "SIMULAÇÃO", size + " Portuguese mode localizes title and simulation toggle");
+                Check(Field<Label>(form, "_healthLabel").Text.StartsWith("Saúde", StringComparison.Ordinal), size + " Portuguese mode has no mixed health label");
             }
         }
 

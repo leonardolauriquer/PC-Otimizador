@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g. v5.5.4)'
+        description: 'Version tag (e.g. v5.6.0)'
         required: true
-        default: 'v5.5.4'
+        default: 'v5.6.0'
 
 permissions:
   contents: read
@@ -53,7 +53,7 @@ jobs:
         run: |
           $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
           & $csc /nologo /target:winexe /optimize+ /platform:anycpu `
-            /reference:System.Windows.Forms.dll /reference:System.Drawing.dll `
+            /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Management.dll `
             /win32manifest:app.manifest /out:PC-Otimizador.exe GuiNative.cs
           if ($LASTEXITCODE -ne 0) { throw 'csc failed' }
 

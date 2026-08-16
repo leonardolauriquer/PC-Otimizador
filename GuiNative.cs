@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Management;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -16,6 +17,7 @@ namespace PCOtimizador
         static readonly Dictionary<string, string[]> Values = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
             { "app.title", new[] { "PC Otimizador Pro", "PC Optimizer Pro" } },
+            { "title.optimizer", new[] { "OTIMIZADOR", "OPTIMIZER" } },
             { "brand", new[] { "PC\nOTIMIZADOR", "PC\nOPTIMIZER" } },
             { "nav.inicio", new[] { "INÍCIO", "HOME" } },
             { "nav.limpeza", new[] { "LIMPEZA", "CLEANUP" } },
@@ -23,23 +25,35 @@ namespace PCOtimizador
             { "nav.internet", new[] { "INTERNET", "NETWORK" } },
             { "nav.inicializacao", new[] { "INICIALIZAÇÃO", "STARTUP" } },
             { "nav.ferramentas", new[] { "FERRAMENTAS", "TOOLS" } },
+            { "nav.dispositivo", new[] { "DISPOSITIVO", "DEVICE" } },
             { "nav.configuracoes", new[] { "CONFIGURAÇÕES", "SETTINGS" } },
             { "nav.protection", new[] { "PROTEÇÃO\nATIVA", "PROTECTION\nACTIVE" } },
             { "language.label", new[] { "IDIOMA", "LANGUAGE" } },
             { "language.pt", new[] { "Português", "Portuguese" } },
             { "language.en", new[] { "English", "English" } },
-            { "header.dashboard", new[] { "Dashboard · Escolha um perfil · Passe o mouse para detalhes", "Dashboard · Choose a profile · Hover for details" } },
+            { "header.dashboard", new[] { "Painel · Escolha um perfil · Passe o mouse para detalhes", "Dashboard · Choose a profile · Hover for details" } },
             { "header.limpeza", new[] { "Limpeza · Temporários seguros e espaço recuperável", "Cleanup · Safe temporary files and recoverable space" } },
             { "header.desempenho", new[] { "Desempenho · Mais resposta para jogos e tarefas", "Performance · More response for games and heavy tasks" } },
             { "header.internet", new[] { "Internet · Diagnóstico e otimização de rede", "Network · Diagnostics and network optimization" } },
             { "header.inicializacao", new[] { "Inicialização · Rotinas seguras e manutenção", "Startup · Safe routines and maintenance" } },
             { "header.ferramentas", new[] { "Ferramentas · Medir, agendar e abrir logs", "Tools · Measure, schedule and open logs" } },
+            { "header.dispositivo", new[] { "Dispositivo · Hardware, sistema, frequências e sensores", "Device · Hardware, system, frequencies and sensors" } },
             { "header.configuracoes", new[] { "Configurações · Idioma, segurança e como usar", "Settings · Language, safety and how to use" } },
-            { "dryrun", new[] { "DRY-RUN", "DRY-RUN" } },
+            { "dryrun", new[] { "SIMULAÇÃO", "DRY-RUN" } },
+            { "badge.safe", new[] { "SEGURO", "SAFE" } },
+            { "badge.risk", new[] { "RISCO", "RISK" } },
             { "cancel", new[] { "PARAR", "STOP" } },
             { "task.ready", new[] { "Pronto — escolha um perfil acima", "Ready — choose a profile above" } },
             { "stats.empty", new[] { "ANTES   — GB livres\nRode um perfil para ver o resultado", "BEFORE   — GB free\nRun a profile to see the result" } },
-            { "health.empty", new[] { "Health\n—/100", "Health\n—/100" } },
+            { "health.empty", new[] { "Saúde\n—/100", "Health\n—/100" } },
+            { "health.caption", new[] { "Saúde", "Health" } },
+            { "status.activity", new[] { "Atividade registrada.", "Activity recorded." } },
+            { "task.starting", new[] { "Iniciando...", "Starting..." } },
+            { "stats.running", new[] { "EM ANDAMENTO\nAguarde o progresso.", "IN PROGRESS\nPlease wait for progress." } },
+            { "task.update.checking", new[] { "Verificando atualizações...", "Checking for updates..." } },
+            { "status.update.checking", new[] { "Consultando lançamentos no GitHub...", "Checking GitHub releases..." } },
+            { "task.update.timeout", new[] { "Pronto (verificação expirada)", "Ready (update check timed out)" } },
+            { "task.update.offline", new[] { "Pronto (atualização indisponível)", "Ready (update unavailable)" } },
             { "page.limpeza.title", new[] { "Limpeza segura", "Safe cleanup" } },
             { "page.limpeza.desc", new[] { "Libere espaço sem tocar nos seus arquivos pessoais.", "Free space without touching your personal files." } },
             { "page.desempenho.title", new[] { "Desempenho", "Performance" } },
@@ -50,22 +64,24 @@ namespace PCOtimizador
             { "page.inicializacao.desc", new[] { "Manutenção programada e diagnóstico sem alterações agressivas.", "Scheduled maintenance and diagnostics without aggressive changes." } },
             { "page.ferramentas.title", new[] { "Ferramentas", "Tools" } },
             { "page.ferramentas.desc", new[] { "Ações que medem ou configuram — sem limpeza agressiva.", "Actions that measure or configure — no aggressive cleanup." } },
+            { "page.dispositivo.title", new[] { "Informações do dispositivo", "Device information" } },
+            { "page.dispositivo.desc", new[] { "Inventário detalhado do hardware, sistema, frequências e sensores disponíveis.", "Detailed inventory of hardware, system, frequencies and available sensors." } },
             { "page.configuracoes.title", new[] { "Configurações", "Settings" } },
             { "page.configuracoes.desc", new[] { "Idioma, proteção e orientações para usar o aplicativo com segurança.", "Language, protection and guidance for safe use." } },
             { "card.safe.title", new[] { "LIMPEZA SEGURA", "SAFE CLEANUP" } },
             { "card.safe.sub", new[] { "Temporários e caches regeneráveis", "Regenerable temporary files and caches" } },
-            { "card.gamer.title", new[] { "TURBO GAMER", "TURBO GAMER" } },
+            { "card.gamer.title", new[] { "TURBO PARA JOGOS", "GAMING TURBO" } },
             { "card.gamer.sub", new[] { "Mais desempenho para jogos e tarefas pesadas", "More performance for games and heavy tasks" } },
             { "card.net.title", new[] { "INTERNET", "NETWORK" } },
             { "card.net.sub", new[] { "DNS, ARP e conexão com confirmação", "DNS, ARP and connection with confirmation" } },
-            { "card.notebook.title", new[] { "NOTEBOOK", "LAPTOP" } },
+            { "card.notebook.title", new[] { "PORTÁTIL", "LAPTOP" } },
             { "card.notebook.sub", new[] { "Equilíbrio entre autonomia e desempenho", "Balance battery life and performance" } },
-            { "card.health.title", new[] { "Health Score", "Health Score" } },
+            { "card.health.title", new[] { "Pontuação de saúde", "Health score" } },
             { "card.health.sub", new[] { "Nota 0–100 do PC", "PC score from 0–100" } },
             { "card.scan.title", new[] { "Estimar espaço", "Estimate space" } },
             { "card.scan.sub", new[] { "Simula quanto poderia liberar", "Simulates how much could be freed" } },
             { "card.schedule.title", new[] { "Agendar", "Schedule" } },
-            { "card.schedule.sub", new[] { "Domingo 10h · somente SAFE", "Sunday 10 AM · SAFE only" } },
+            { "card.schedule.sub", new[] { "Domingo 10h · somente SEGURO", "Sunday 10 AM · SAFE only" } },
             { "card.logs.title", new[] { "Abrir logs", "Open logs" } },
             { "card.logs.sub", new[] { "Histórico das sessões", "Session history" } },
             { "card.run", new[] { "ABRIR", "OPEN" } },
@@ -74,14 +90,26 @@ namespace PCOtimizador
             { "settings.safety.title", new[] { "Proteção ativa", "Protection active" } },
             { "settings.safety.text", new[] { "Documentos, Fotos, Vídeos, Música, Desktop, Downloads e OneDrive nunca são alvos da limpeza segura.", "Documents, Pictures, Videos, Music, Desktop, Downloads and OneDrive are never targets of safe cleanup." } },
             { "settings.help.title", new[] { "Como usar", "How to use" } },
-            { "settings.help.text", new[] { "1. Ative DRY-RUN para revisar.\n2. Rode Health ou Estimar espaço.\n3. Execute um perfil somente após conferir a confirmação.\n\nPerfis RISK sempre pedem confirmação explícita.", "1. Enable DRY-RUN to review.\n2. Run Health or Estimate space.\n3. Execute a profile only after reviewing the confirmation.\n\nRISK profiles always require explicit confirmation." } },
+            { "settings.help.text", new[] { "1. Ative SIMULAÇÃO para revisar.\n2. Rode Saúde ou Estimar espaço.\n3. Execute um perfil somente após conferir a confirmação.\n\nPerfis de RISCO sempre pedem confirmação explícita.", "1. Enable DRY-RUN to review.\n2. Run Health or Estimate space.\n3. Execute a profile only after reviewing the confirmation.\n\nRISK profiles always require explicit confirmation." } },
             { "button.runSafe", new[] { "Executar limpeza segura", "Run safe cleanup" } },
             { "button.runGamer", new[] { "Executar Turbo Gamer", "Run Turbo Gamer" } },
             { "button.runNet", new[] { "Diagnosticar internet", "Diagnose network" } },
-            { "button.health", new[] { "Ver Health Score", "View Health Score" } },
+            { "button.health", new[] { "Ver pontuação de saúde", "View health score" } },
             { "button.scan", new[] { "Estimar espaço", "Estimate space" } },
             { "button.schedule", new[] { "Agendar rotina", "Schedule routine" } },
-            { "button.logs", new[] { "Abrir pasta de logs", "Open log folder" } }
+            { "button.logs", new[] { "Abrir pasta de registros", "Open log folder" } },
+            { "button.refreshDevice", new[] { "ATUALIZAR DADOS", "REFRESH DATA" } },
+            { "device.loading", new[] { "Coletando informações...", "Collecting information..." } },
+            { "device.unavailable", new[] { "Não disponível pelo Windows", "Not available from Windows" } },
+            { "device.system", new[] { "Computador e sistema", "Computer and system" } },
+            { "device.cpu", new[] { "Processador", "Processor" } },
+            { "device.gpu", new[] { "Placa de vídeo", "Graphics adapter" } },
+            { "device.memory", new[] { "Memória RAM", "Memory" } },
+            { "device.board", new[] { "Placa-mãe e BIOS", "Motherboard and BIOS" } },
+            { "device.storage", new[] { "Armazenamento", "Storage" } },
+            { "device.network", new[] { "Rede", "Network" } },
+            { "device.sensors", new[] { "Sensores e atividade", "Sensors and activity" } },
+            { "device.error", new[] { "Falha ao consultar: ", "Query failed: " } }
         };
 
         public static string Get(string key, bool english)
@@ -246,6 +274,7 @@ namespace PCOtimizador
 
     sealed class IconCanvas : Panel
     {
+        static string _fluentFontName;
         public string Kind;
         public Color AccentColor = Color.FromArgb(0, 229, 192);
         public int Stroke = 2;
@@ -266,30 +295,68 @@ namespace PCOtimizador
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
             float s = Math.Min(Width, Height);
-            float lineWidth = Math.Max(1.45f, s * 0.045f);
             var tile = new RectangleF(s * .08f, s * .08f, s * .84f, s * .84f);
-            using (var glow = new Pen(Color.FromArgb(24, AccentColor), lineWidth + 3f))
-            using (var pen = new Pen(AccentColor, lineWidth))
+            string glyph = FluentGlyph(Kind);
             using (var brush = new SolidBrush(AccentColor))
             {
                 if (ShowTile)
                 {
                     using (var tilePath = RoundPanel.RoundRect(Rectangle.Round(tile), (int)Math.Max(6, s * .20f)))
                     using (var tileBrush = new SolidBrush(Color.FromArgb(18, AccentColor)))
-                    using (var tilePen = new Pen(Color.FromArgb(55, AccentColor), Math.Max(1f, lineWidth * .55f)))
+                    using (var tilePen = new Pen(Color.FromArgb(55, AccentColor), 1f))
                     {
                         e.Graphics.FillPath(tileBrush, tilePath);
                         e.Graphics.DrawPath(tilePen, tilePath);
                     }
                 }
-                glow.LineJoin = LineJoin.Round;
-                glow.StartCap = LineCap.Round; glow.EndCap = LineCap.Round;
-                pen.LineJoin = LineJoin.Round;
-                pen.StartCap = LineCap.Round; pen.EndCap = LineCap.Round;
-                DrawIcon(e.Graphics, glow, brush);
-                DrawIcon(e.Graphics, pen, brush);
+                float iconSize = s >= 78 ? 48f : (s >= 58 ? 40f : (s >= 42 ? 32f : (s >= 30 ? 24f : 20f)));
+                using (var iconFont = new Font(FluentFontName(), iconSize, FontStyle.Regular, GraphicsUnit.Pixel))
+                using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center, FormatFlags = StringFormatFlags.NoWrap })
+                using (var glowBrush = new SolidBrush(Color.FromArgb(34, AccentColor)))
+                {
+                    var bounds = new RectangleF(0, 0, Width, Height);
+                    e.Graphics.DrawString(glyph, iconFont, glowBrush, new RectangleF(-1, -1, Width + 2, Height + 2), format);
+                    e.Graphics.DrawString(glyph, iconFont, brush, bounds, format);
+                }
             }
             base.OnPaint(e);
+        }
+
+        static string FluentFontName()
+        {
+            if (!string.IsNullOrEmpty(_fluentFontName)) return _fluentFontName;
+            foreach (var family in FontFamily.Families)
+                if (string.Equals(family.Name, "Segoe Fluent Icons", StringComparison.OrdinalIgnoreCase)) return _fluentFontName = family.Name;
+            return _fluentFontName = "Segoe MDL2 Assets";
+        }
+
+        static string FluentGlyph(string kind)
+        {
+            switch ((kind ?? "").ToLowerInvariant())
+            {
+                case "home": return "\uE80F";       // Home
+                case "broom": return "\uEA99";      // Broom
+                case "gauge": return "\uE9D9";      // Diagnostic
+                case "globe": return "\uE774";      // Globe
+                case "laptop": return "\uE7F8";     // DeviceLaptopNoPic
+                case "power": return "\uE7E8";      // PowerButton
+                case "tools": return "\uE90F";      // Repair
+                case "gear": return "\uE713";       // Settings
+                case "shield": return "\uEA18";     // Shield
+                case "drive": return "\uE958";      // StorageOptical
+                case "heart": return "\uEB51";      // Heart
+                case "health": return "\uE95E";     // Health
+                case "network": return "\uE968";    // Network
+                case "clock": return "\uE917";      // Clock
+                case "folder": return "\uE838";     // FolderOpen
+                case "device": return "\uE772";     // Devices
+                case "cpu": return "\uE950";        // Component
+                case "component": return "\uE950";  // Component
+                case "gpu": return "\uE7F9";        // DeviceMonitorRightPic
+                case "memory": return "\uE965";     // MediaStorageTower
+                case "sensor": return "\uE957";     // Sensor
+                default: return "\uE946";             // Info
+            }
         }
 
         void DrawIcon(Graphics g, Pen pen, Brush brush)
@@ -329,19 +396,12 @@ namespace PCOtimizador
                     g.DrawLine(pen, cx - s * .05f, cy + s * .12f, cx + s * .22f, cy - s * .16f);
                     break;
                 case "health":
-                    using (var health = new GraphicsPath())
-                    {
-                        health.AddBezier(cx, b, l + s * .05f, s * .55f, l + s * .02f, t + s * .10f, cx - s * .18f, t + s * .22f);
-                        health.AddBezier(cx - s * .18f, t + s * .22f, cx - s * .02f, t - s * .01f, cx - s * .01f, t + s * .18f, cx, t + s * .27f);
-                        health.AddBezier(cx, t + s * .27f, cx + s * .01f, t + s * .18f, cx + s * .02f, t - s * .01f, cx + s * .18f, t + s * .22f);
-                        health.AddBezier(cx + s * .18f, t + s * .22f, r - s * .02f, t + s * .10f, r - s * .05f, s * .55f, cx, b);
-                        g.DrawPath(pen, health);
-                    }
-                    g.DrawLine(pen, l + s * .18f, cy, cx - s * .12f, cy);
-                    g.DrawLine(pen, cx - s * .12f, cy, cx - s * .04f, cy - s * .13f);
-                    g.DrawLine(pen, cx - s * .04f, cy - s * .13f, cx + s * .05f, cy + s * .12f);
-                    g.DrawLine(pen, cx + s * .05f, cy + s * .12f, cx + s * .14f, cy - s * .08f);
-                    g.DrawLine(pen, cx + s * .14f, cy - s * .08f, r - s * .16f, cy - s * .08f);
+                    g.DrawEllipse(pen, l, t, s * .68f, s * .68f);
+                    g.DrawLine(pen, l + s * .10f, cy, cx - s * .16f, cy);
+                    g.DrawLine(pen, cx - s * .16f, cy, cx - s * .08f, cy - s * .13f);
+                    g.DrawLine(pen, cx - s * .08f, cy - s * .13f, cx + s * .02f, cy + s * .14f);
+                    g.DrawLine(pen, cx + s * .02f, cy + s * .14f, cx + s * .12f, cy - s * .09f);
+                    g.DrawLine(pen, cx + s * .12f, cy - s * .09f, r - s * .10f, cy - s * .09f);
                     break;
                 case "gauge":
                     g.DrawArc(pen, l, t, s * .68f, s * .68f, 135, 270);
@@ -465,15 +525,20 @@ namespace PCOtimizador
         Panel _statsBox;
         Panel _diskIconHost;
         Panel _healthIconHost;
+        Panel _statsDivider;
         TableLayoutPanel _presetGrid;
         FlowLayoutPanel _toolsFlow;
+        FlowLayoutPanel _deviceFlow;
+        Button _deviceRefresh;
+        readonly Dictionary<string, Label> _deviceValues = new Dictionary<string, Label>(StringComparer.OrdinalIgnoreCase);
         Panel _helpScroll;
         RoundPanel _helpBox;
         Label _helpLabel;
         Label _safetyTitle;
         Label _safetyText;
         Label _languageCaption;
-        ComboBox _languageCombo;
+        Button _languagePtButton;
+        Button _languageEnButton;
         Label _brandLabel;
         Label _protectLabel;
         TextBox _log;
@@ -499,6 +564,8 @@ namespace PCOtimizador
         int _healthScore;
         string _diskFree = "—";
         string _diskTot = "—";
+        bool _deviceLoaded;
+        int _deviceRequestId;
 
         static readonly Color Bg = Color.FromArgb(4, 8, 14);
         static readonly Color PanelBg = Color.FromArgb(6, 13, 22);
@@ -538,7 +605,7 @@ namespace PCOtimizador
                 ToolTipTitle = "PC Otimizador Pro"
             };
 
-            Text = "PC Otimizador Pro";
+            Text = T("app.title");
             var workArea = Screen.PrimaryScreen != null ? Screen.PrimaryScreen.WorkingArea : new Rectangle(0, 0, 1360, 860);
             Size = new Size(Math.Max(980, Math.Min(1360, workArea.Width - 24)), Math.Max(680, Math.Min(860, workArea.Height - 24)));
             // Keep the full dashboard usable on compact laptop displays.  The
@@ -571,6 +638,7 @@ namespace PCOtimizador
             BuildPageInternet();
             BuildPageInicializacao();
             BuildPageFerramentas();
+            BuildPageDispositivo();
             BuildPageConfiguracoes();
             ShowPage("inicio");
             HighlightNav("inicio");
@@ -608,6 +676,8 @@ namespace PCOtimizador
         void SetLanguage(bool english)
         {
             _english = english;
+            Text = T("app.title");
+            _tips.ToolTipTitle = T("app.title");
             foreach (var kv in _localized)
                 foreach (var control in kv.Value)
                     if (control != null && !control.IsDisposed) control.Text = T(kv.Key);
@@ -616,12 +686,22 @@ namespace PCOtimizador
             if (_protectLabel != null) _protectLabel.Text = T("nav.protection");
             if (_dry != null) _dry.Text = T("dryrun");
             if (_btnCancel != null) _btnCancel.Text = T("cancel");
+            if (_statusLabel != null && !string.IsNullOrWhiteSpace(_statusLabel.Text)) _statusLabel.Text = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + T("status.activity");
             if (_taskLabel != null && !_running) _taskLabel.Text = T("task.ready");
             if (_beforeAfter != null && !_running) _beforeAfter.Text = T("stats.empty");
             if (_healthLabel != null && !_running && _healthScore == 0) _healthLabel.Text = T("health.empty");
             UpdateHero();
-            if (_languageCombo != null && _languageCombo.SelectedIndex != (english ? 1 : 0))
-                _languageCombo.SelectedIndex = english ? 1 : 0;
+            if (_languagePtButton != null)
+            {
+                _languagePtButton.BackColor = english ? Card : Color.FromArgb(0, 92, 91);
+                _languagePtButton.ForeColor = english ? Muted : Color.White;
+            }
+            if (_languageEnButton != null)
+            {
+                _languageEnButton.BackColor = english ? Color.FromArgb(0, 92, 91) : Card;
+                _languageEnButton.ForeColor = english ? Color.White : Muted;
+            }
+            if (_deviceLoaded) LoadDeviceInfoAsync(true);
             Invalidate(true);
         }
 
@@ -665,22 +745,22 @@ namespace PCOtimizador
 
         void BuildChrome()
         {
-            _chrome = new Panel { Dock = DockStyle.Top, Height = 94, BackColor = Bg };
+            _chrome = new Panel { Dock = DockStyle.Top, Height = 100, BackColor = Bg };
             _content.Controls.Add(_chrome);
 
-            var titleFont = new Font("Segoe UI Semibold", 32f);
+            var titleFont = new Font("Segoe UI Semibold", 28.5f);
             var pcSize = TextRenderer.MeasureText("PC", titleFont);
             var optSize = TextRenderer.MeasureText("OTIMIZADOR", titleFont);
             var proSize = TextRenderer.MeasureText("PRO", titleFont);
-            var pc = new Label { Text = "PC", Font = titleFont, ForeColor = TextMain, Location = new Point(34, 20), Size = pcSize, AutoSize = false };
-            var opt = new Label { Text = "OTIMIZADOR", Font = titleFont, ForeColor = Accent, Location = new Point(34 + pcSize.Width + 12, 20), Size = optSize, AutoSize = false };
-            var pro = new Label { Text = "PRO", Font = titleFont, ForeColor = TextMain, Location = new Point(34 + pcSize.Width + 12 + optSize.Width + 18, 20), Size = proSize, AutoSize = false };
+            var pc = new Label { Text = "PC", Font = titleFont, ForeColor = TextMain, Location = new Point(34, 16), Size = pcSize, AutoSize = false };
+            var opt = Register(new Label { Font = titleFont, ForeColor = Accent, Location = new Point(34 + pcSize.Width + 10, 16), Size = optSize, AutoSize = false }, "title.optimizer");
+            var pro = new Label { Text = "PRO", Font = titleFont, ForeColor = TextMain, Location = new Point(34 + pcSize.Width + 10 + optSize.Width + 15, 16), Size = proSize, AutoSize = false };
             _chrome.Controls.Add(pc); _chrome.Controls.Add(opt); _chrome.Controls.Add(pro);
-            _heroSub = new Label { Text = T("header.dashboard"), Location = new Point(38, 72), Size = new Size(520, 18), AutoSize = false, AutoEllipsis = true, ForeColor = Muted, Font = new Font("Segoe UI", 9.5f) };
+            _heroSub = new Label { Text = T("header.dashboard"), Location = new Point(38, 70), Size = new Size(520, 20), AutoSize = false, AutoEllipsis = true, ForeColor = Muted, Font = new Font("Segoe UI", 9.5f) };
             _chrome.Controls.Add(_heroSub);
             WireDrag(_chrome); WireDrag(pc); WireDrag(opt); WireDrag(pro);
 
-            _dry = new TogglePill { Text = T("dryrun"), Location = new Point(0, 28), Size = new Size(112, 32), Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            _dry = new TogglePill { Text = T("dryrun"), Location = new Point(0, 20), Size = new Size(104, 30), Anchor = AnchorStyles.Top | AnchorStyles.Right, TabStop = false };
             _chrome.Controls.Add(_dry);
             Tip(_dry, "Simula a limpeza sem apagar nada. Ideal na primeira vez.");
 
@@ -694,10 +774,10 @@ namespace PCOtimizador
             _chrome.Resize += (s, e) =>
             {
                 int right = _chrome.ClientSize.Width - 14;
-                close.Location = new Point(right - close.Width, 18);
-                max.Location = new Point(right - close.Width - max.Width - 4, 18);
-                min.Location = new Point(right - close.Width - max.Width - min.Width - 8, 18);
-                _dry.Location = new Point(Math.Max(500, right - close.Width - max.Width - min.Width - _dry.Width - 34), 21);
+                close.Location = new Point(right - close.Width, 16);
+                max.Location = new Point(close.Left - max.Width - 4, 16);
+                min.Location = new Point(max.Left - min.Width - 4, 16);
+                _dry.Location = new Point(Math.Max(pro.Right + 18, right - _dry.Width), 62);
             };
         }
 
@@ -731,7 +811,7 @@ namespace PCOtimizador
         {
             _progressBox = new RoundPanel { BackColor = Card, BorderColor = Border, Glow = true };
             _content.Controls.Add(_progressBox);
-            _pctLabel = new Label { Text = "0%", Font = new Font("Segoe UI Semibold", 42f), ForeColor = Accent, TextAlign = ContentAlignment.MiddleCenter };
+            _pctLabel = new Label { Text = "0%", Font = new Font("Segoe UI Semibold", 32f), ForeColor = Accent, TextAlign = ContentAlignment.MiddleCenter };
             _progressBox.Controls.Add(_pctLabel);
             _bar = new GlowProgress { Value = 0 };
             _progressBox.Controls.Add(_bar);
@@ -755,6 +835,8 @@ namespace PCOtimizador
             _healthIconHost = new Panel { BackColor = Color.Transparent };
             _healthIconHost.Controls.Add(new IconCanvas("health", 78) { AccentColor = Accent, ShowTile = false, Dock = DockStyle.Fill });
             _statsBox.Controls.Add(_healthIconHost);
+            _statsDivider = new Panel { BackColor = Color.FromArgb(42, 69, 82), Width = 1 };
+            _statsBox.Controls.Add(_statsDivider);
             _healthLabel = new Label { Text = T("health.empty"), ForeColor = Accent, Font = new Font("Segoe UI Semibold", 19f), TextAlign = ContentAlignment.MiddleLeft };
             _statsBox.Controls.Add(_healthLabel);
             Tip(_healthLabel, "Nota de saúde 0–100 (disco, RAM, lixo recuperável).");
@@ -769,7 +851,7 @@ namespace PCOtimizador
             int w = Math.Max(600, _content.ClientSize.Width - 60);
             int h = Math.Max(520, _content.ClientSize.Height);
             int gridHeight = Math.Max(220, Math.Min(250, h / 3));
-            int gridY = 105;
+            int gridY = 108;
             int progressY = gridY + gridHeight + 20;
             int progressH = 154;
             int statsY = progressY + progressH + 18;
@@ -797,14 +879,17 @@ namespace PCOtimizador
                 foreach (Control child in pageEntry.Value.Controls)
                 {
                     var flow = child as FlowLayoutPanel;
-                    if (flow != null && (flow == _toolsFlow || string.Equals(flow.Tag as string, "feature-flow", StringComparison.Ordinal)))
+                    if (flow != null && (flow == _toolsFlow || flow == _deviceFlow || string.Equals(flow.Tag as string, "feature-flow", StringComparison.Ordinal)))
                         flow.Bounds = new Rectangle(0, 92, pageEntry.Value.ClientSize.Width, Math.Max(90, pageEntry.Value.ClientSize.Height - 92));
+                    var heading = child as Label;
+                    if (heading != null && (heading.Top == 18 || heading.Top == 58))
+                        heading.Size = new Size(Math.Max(120, pageEntry.Value.ClientSize.Width - heading.Left - 18), heading.Top == 18 ? 38 : 24);
                 }
             }
             if (_helpScroll != null)
             {
                 var helpPage = _pages["configuracoes"];
-                _helpScroll.Bounds = new Rectangle(0, 0, helpPage.ClientSize.Width, helpPage.ClientSize.Height);
+                _helpScroll.Bounds = new Rectangle(0, 92, helpPage.ClientSize.Width, Math.Max(120, helpPage.ClientSize.Height - 92));
                 // The fixed-height guide can require a vertical scrollbar. Leave
                 // its gutter in the width calculation so the card never clips
                 // horizontally when the window is compact.
@@ -814,13 +899,20 @@ namespace PCOtimizador
                 if (_safetyTitle != null) _safetyTitle.Bounds = new Rectangle(26, 190, Math.Max(208, helpWidth - 52), 24);
                 if (_safetyText != null) _safetyText.Bounds = new Rectangle(26, 216, Math.Max(208, helpWidth - 52), 100);
             }
+            if (_deviceRefresh != null && _pages.ContainsKey("dispositivo"))
+            {
+                var devicePage = _pages["dispositivo"];
+                _deviceRefresh.Bounds = new Rectangle(Math.Max(20, devicePage.ClientSize.Width - 178), 18, 160, 32);
+                foreach (Control child in devicePage.Controls)
+                    if (child is Label && child.Top == 18) child.Width = Math.Max(160, devicePage.ClientSize.Width - 220);
+            }
             if (_progressBox != null)
             {
                 _progressBox.Visible = dashboard;
                 _progressBox.Bounds = new Rectangle(30, progressY, w, progressH);
-                _pctLabel.Bounds = new Rectangle(0, 8, w, 54);
-                _bar.Bounds = new Rectangle(34, 70, Math.Max(40, w - 68), 22);
-                _taskLabel.Bounds = new Rectangle(0, 103, w, 28);
+                _pctLabel.Bounds = new Rectangle(120, 1, Math.Max(200, w - 240), 68);
+                _bar.Bounds = new Rectangle(34, 72, Math.Max(40, w - 68), 22);
+                _taskLabel.Bounds = new Rectangle(24, 105, Math.Max(80, w - 48), 28);
                 _btnCancel.Bounds = new Rectangle(w - 112, 14, 92, 32);
             }
             if (_statsBox != null)
@@ -830,6 +922,7 @@ namespace PCOtimizador
                 int half = w / 2;
                 _diskIconHost.Bounds = new Rectangle(22, 15, 82, Math.Max(70, statsH - 30));
                 _beforeAfter.Bounds = new Rectangle(120, 15, Math.Max(180, half - 150), Math.Max(70, statsH - 30));
+                _statsDivider.Bounds = new Rectangle(half, 24, 1, Math.Max(52, statsH - 48));
                 _healthIconHost.Bounds = new Rectangle(half + 16, 15, 82, Math.Max(70, statsH - 30));
                 _healthLabel.Bounds = new Rectangle(half + 114, 15, Math.Max(180, w - half - 135), Math.Max(70, statsH - 30));
             }
@@ -843,9 +936,9 @@ namespace PCOtimizador
         void CheckMandatoryUpdate()
         {
             var upd = Path.Combine(_root, "Update.ps1");
-            if (!File.Exists(upd)) { LogLine("Update.ps1 ausente — sem auto-update nesta pasta."); return; }
-            _taskLabel.Text = "Verificando atualizações...";
-            _statusLabel.Text = "Consultando GitHub Releases (obrigatório)...";
+            if (!File.Exists(upd)) { LogLine(Local(_english, "Atualizador ausente nesta pasta.", "Updater is missing from this folder.")); return; }
+            _taskLabel.Text = T("task.update.checking");
+            _statusLabel.Text = T("status.update.checking");
             Application.DoEvents();
             try
             {
@@ -871,22 +964,22 @@ namespace PCOtimizador
                         else if (!string.IsNullOrWhiteSpace(line)) LogLine(line.Trim());
                         Application.DoEvents();
                     }
-                    if (!p.WaitForExit(300000)) { LogLine("Verificação de atualização excedeu o tempo limite."); _taskLabel.Text = "Pronto (update expirou)"; return; }
+                    if (!p.WaitForExit(300000)) { LogLine(Local(_english, "Verificação de atualização excedeu o tempo limite.", "Update check timed out.")); _taskLabel.Text = T("task.update.timeout"); return; }
                     int code = p.ExitCode;
                     if (code == 10)
                     {
-                        MessageBox.Show("Nova versão encontrada.\nO programa vai fechar e atualizar sozinho.", "Atualização obrigatória", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show(Local(_english, "Nova versão encontrada.\nO programa vai fechar e atualizar sozinho.", "A new version was found.\nThe app will close and update automatically."), Local(_english, "Atualização obrigatória", "Required update"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                         Application.Exit(); return;
                     }
                     if (code == 2)
                     {
-                        MessageBox.Show("Falha na atualização obrigatória.\nVerifique a internet e tente de novo.\n\nhttps://github.com/leonardolauriquer/PC-Otimizador/releases", "Atualização", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        MessageBox.Show(Local(_english, "Falha na atualização obrigatória.\nVerifique a internet e tente de novo.\n\nhttps://github.com/leonardolauriquer/PC-Otimizador/releases", "Required update failed.\nCheck your connection and try again.\n\nhttps://github.com/leonardolauriquer/PC-Otimizador/releases"), Local(_english, "Atualização", "Update"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                         Application.Exit(); return;
                     }
-                    _taskLabel.Text = "Pronto — escolha um perfil acima";
+                    _taskLabel.Text = T("task.ready");
                 }
             }
-            catch (Exception ex) { LogLine("Update check: " + ex.Message); _taskLabel.Text = "Pronto (update offline?)"; }
+            catch (Exception ex) { LogLine(Local(_english, "Verificação de atualização: ", "Update check: ") + ex.Message); _taskLabel.Text = T("task.update.offline"); }
         }
 
         void BuildSidebar()
@@ -904,25 +997,24 @@ namespace PCOtimizador
             AddNav("internet", "INTERNET", "globe", y, () => ShowPage("internet")); y += 52;
             AddNav("inicializacao", "INICIALIZAÇÃO", "power", y, () => ShowPage("inicializacao")); y += 52;
             AddNav("ferramentas", "FERRAMENTAS", "tools", y, () => ShowPage("ferramentas")); y += 52;
-            AddNav("configuracoes", "CONFIGURAÇÕES", "gear", y, () => ShowPage("ajuda"));
+            AddNav("dispositivo", "DISPOSITIVO", "device", y, () => ShowPage("dispositivo")); y += 52;
+            AddNav("configuracoes", "CONFIGURAÇÕES", "gear", y, () => ShowPage("configuracoes"));
 
             var separator = new Panel { BackColor = Color.FromArgb(28, 46, 59), Height = 1, Dock = DockStyle.Bottom };
             _sidebar.Controls.Add(separator);
             var languagePanel = new Panel { Dock = DockStyle.Bottom, Height = 54, BackColor = PanelBg };
-            _languageCaption = Register(new Label { ForeColor = Muted, Font = new Font("Segoe UI Semibold", 8f), Location = new Point(20, 9), AutoSize = true }, "language.label");
+            _languageCaption = Register(new Label { ForeColor = Muted, Font = new Font("Segoe UI Semibold", 8f), Location = new Point(20, 12), AutoSize = true }, "language.label");
             languagePanel.Controls.Add(_languageCaption);
-            _languageCombo = new ComboBox { Location = new Point(88, 6), Size = new Size(126, 26), DropDownStyle = ComboBoxStyle.DropDownList, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 20, FlatStyle = FlatStyle.Flat, BackColor = Card, ForeColor = TextMain, Font = new Font("Segoe UI", 8.5f) };
-            _languageCombo.Items.Add(T("language.pt")); _languageCombo.Items.Add(T("language.en"));
-            _languageCombo.SelectedIndex = 0;
-            _languageCombo.DrawItem += (s, e) =>
-            {
-                e.DrawBackground();
-                if (e.Index < 0 || e.Index >= _languageCombo.Items.Count) return;
-                using (var brush = new SolidBrush(TextMain))
-                    e.Graphics.DrawString(_languageCombo.Items[e.Index].ToString(), _languageCombo.Font, brush, e.Bounds.Left + 6, e.Bounds.Top + 2);
-            };
-            _languageCombo.SelectedIndexChanged += (s, e) => SetLanguage(_languageCombo.SelectedIndex == 1);
-            languagePanel.Controls.Add(_languageCombo);
+            _languagePtButton = new Button { Text = "PT", Location = new Point(88, 7), Size = new Size(56, 28), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(0, 92, 91), ForeColor = Color.White, Font = new Font("Segoe UI Semibold", 8.5f), Cursor = Cursors.Hand };
+            _languageEnButton = new Button { Text = "EN", Location = new Point(149, 7), Size = new Size(56, 28), FlatStyle = FlatStyle.Flat, BackColor = Card, ForeColor = Muted, Font = new Font("Segoe UI Semibold", 8.5f), Cursor = Cursors.Hand };
+            _languagePtButton.FlatAppearance.BorderColor = Border;
+            _languageEnButton.FlatAppearance.BorderColor = Border;
+            _languagePtButton.ForeColor = Color.White;
+            _languageEnButton.ForeColor = Muted;
+            _languagePtButton.Click += (s, e) => SetLanguage(false);
+            _languageEnButton.Click += (s, e) => SetLanguage(true);
+            languagePanel.Controls.Add(_languagePtButton);
+            languagePanel.Controls.Add(_languageEnButton);
             _sidebar.Controls.Add(languagePanel);
             var protect = new Panel { Dock = DockStyle.Bottom, Height = 88, BackColor = PanelBg, Padding = new Padding(20, 16, 16, 10) };
             _sidebar.Controls.Add(protect);
@@ -973,13 +1065,13 @@ namespace PCOtimizador
             for (int i = 0; i < 4; i++) _presetGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200f));
             _presetGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             page.Controls.Add(_presetGrid);
-            _presetGrid.Controls.Add(MakePresetCard("card.safe.title", "card.safe.sub", "SAFE", "shield", Accent, () => RunPreset("safe", false), "Temporários e caches regeneráveis. Não esvazia a Lixeira."), 0, 0);
-            _presetGrid.Controls.Add(MakePresetCard("card.gamer.title", "card.gamer.sub", "RISK", "gauge", Danger, () => RunPreset("gamer", true), "Pode ativar Alto Desempenho e DNS Cloudflare."), 1, 0);
-            _presetGrid.Controls.Add(MakePresetCard("card.net.title", "card.net.sub", "RISK", "globe", Warn, () => RunPreset("net", true), "Flush DNS/ARP; pode renovar IP e DNS Cloudflare."), 2, 0);
-            _presetGrid.Controls.Add(MakePresetCard("card.notebook.title", "card.notebook.sub", "SAFE", "laptop", Ok, () => RunPreset("notebook", false), "Limpeza segura + plano de energia equilibrado."), 3, 0);
+            _presetGrid.Controls.Add(MakePresetCard("card.safe.title", "card.safe.sub", "badge.safe", "shield", Accent, () => RunPreset("safe", false), "Temporários e caches regeneráveis. Não esvazia a Lixeira."), 0, 0);
+            _presetGrid.Controls.Add(MakePresetCard("card.gamer.title", "card.gamer.sub", "badge.risk", "gauge", Danger, () => RunPreset("gamer", true), "Pode ativar Alto Desempenho e DNS Cloudflare."), 1, 0);
+            _presetGrid.Controls.Add(MakePresetCard("card.net.title", "card.net.sub", "badge.risk", "globe", Warn, () => RunPreset("net", true), "Flush DNS/ARP; pode renovar IP e DNS Cloudflare."), 2, 0);
+            _presetGrid.Controls.Add(MakePresetCard("card.notebook.title", "card.notebook.sub", "badge.safe", "laptop", Ok, () => RunPreset("notebook", false), "Limpeza segura + plano de energia equilibrado."), 3, 0);
         }
 
-        RoundPanel MakePresetCard(string titleKey, string subKey, string badge, string icon, Color accent, Action onClick, string tip)
+        RoundPanel MakePresetCard(string titleKey, string subKey, string badgeKey, string icon, Color accent, Action onClick, string tip)
         {
             var p = new RoundPanel { BackColor = Card, BorderColor = Border, Radius = 14, Margin = new Padding(8), Dock = DockStyle.Fill, Cursor = Cursors.Hand };
             var rail = new Panel { BackColor = accent, Width = 3, Dock = DockStyle.Left };
@@ -987,7 +1079,7 @@ namespace PCOtimizador
             var iconPanel = new IconCanvas(icon, 86) { AccentColor = accent, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
             var titleLabel = Register(new Label { ForeColor = TextMain, Font = new Font("Segoe UI Semibold", 11.5f), TextAlign = ContentAlignment.MiddleCenter, AutoEllipsis = true, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right }, titleKey);
             var subLabel = Register(new Label { ForeColor = Muted, Font = new Font("Segoe UI", 8.8f), TextAlign = ContentAlignment.TopCenter, AutoEllipsis = true, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right }, subKey);
-            var badgeLabel = new Label { Text = badge, ForeColor = accent, Font = new Font("Segoe UI Semibold", 8f), AutoSize = true, Location = new Point(18, 14) };
+            var badgeLabel = Register(new Label { ForeColor = accent, Font = new Font("Segoe UI Semibold", 8f), AutoSize = true, Location = new Point(18, 14) }, badgeKey);
             p.Controls.Add(iconPanel); p.Controls.Add(titleLabel); p.Controls.Add(subLabel); p.Controls.Add(badgeLabel);
             p.Resize += (s, e) =>
             {
@@ -1008,8 +1100,8 @@ namespace PCOtimizador
         {
             var page = new Panel { BackColor = Bg, Visible = false };
             _content.Controls.Add(page); _pages[pageKey] = page;
-            page.Controls.Add(Register(new Label { Font = new Font("Segoe UI Semibold", 22f), ForeColor = TextMain, Location = new Point(10, 18), AutoSize = true }, titleKey));
-            page.Controls.Add(Register(new Label { ForeColor = Muted, Location = new Point(12, 58), AutoSize = true }, descKey));
+            page.Controls.Add(Register(new Label { Font = new Font("Segoe UI Semibold", 22f), ForeColor = TextMain, Location = new Point(10, 18), Size = new Size(600, 38), AutoEllipsis = true }, titleKey));
+            page.Controls.Add(Register(new Label { ForeColor = Muted, Location = new Point(12, 58), Size = new Size(600, 24), AutoEllipsis = true }, descKey));
             var flow = new FlowLayoutPanel
             {
                 BackColor = Color.Transparent,
@@ -1100,8 +1192,8 @@ namespace PCOtimizador
         {
             var p = new RoundPanel { Size = new Size(280, 90), Margin = new Padding(8), BackColor = Card, BorderColor = Border, Radius = 12, Cursor = Cursors.Hand };
             var i = new IconCanvas(icon, 42) { AccentColor = Accent, Location = new Point(16, 23) };
-            var t = Register(new Label { Font = new Font("Segoe UI Semibold", 12f), ForeColor = Accent, Location = new Point(72, 18), AutoSize = true }, titleKey);
-            var s = Register(new Label { ForeColor = Muted, Location = new Point(72, 49), AutoSize = true }, subKey);
+            var t = Register(new Label { Font = new Font("Segoe UI Semibold", 12f), ForeColor = Accent, Location = new Point(72, 16), Size = new Size(190, 26), AutoEllipsis = true }, titleKey);
+            var s = Register(new Label { ForeColor = Muted, Location = new Point(72, 47), Size = new Size(190, 30), AutoEllipsis = true }, subKey);
             p.Controls.Add(i); p.Controls.Add(t); p.Controls.Add(s);
             EventHandler click = (o, e) => { if (!_running) act(); };
             p.Click += click; i.Click += click; t.Click += click; s.Click += click;
@@ -1111,12 +1203,213 @@ namespace PCOtimizador
             return p;
         }
 
+        void BuildPageDispositivo()
+        {
+            var page = new Panel { BackColor = Bg, Visible = false };
+            _content.Controls.Add(page); _pages["dispositivo"] = page;
+            page.Controls.Add(Register(new Label { Font = new Font("Segoe UI Semibold", 22f), ForeColor = TextMain, Location = new Point(10, 18), Size = new Size(560, 38), AutoEllipsis = true }, "page.dispositivo.title"));
+            page.Controls.Add(Register(new Label { ForeColor = Muted, Location = new Point(12, 58), Size = new Size(720, 24), AutoEllipsis = true }, "page.dispositivo.desc"));
+            _deviceRefresh = Register(FlatBtn(0, 0, 160, 32, "", Color.FromArgb(0, 92, 91)), "button.refreshDevice");
+            _deviceRefresh.Click += (s, e) => LoadDeviceInfoAsync(true);
+            page.Controls.Add(_deviceRefresh);
+
+            _deviceFlow = new FlowLayoutPanel
+            {
+                BackColor = Color.Transparent,
+                AutoScroll = true,
+                WrapContents = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                Padding = new Padding(4),
+                Margin = new Padding(0),
+                Tag = "device-flow"
+            };
+            _deviceFlow.Controls.Add(DeviceInfoCard("system", "device.system", "device"));
+            _deviceFlow.Controls.Add(DeviceInfoCard("cpu", "device.cpu", "cpu"));
+            _deviceFlow.Controls.Add(DeviceInfoCard("gpu", "device.gpu", "gpu"));
+            _deviceFlow.Controls.Add(DeviceInfoCard("memory", "device.memory", "memory"));
+            _deviceFlow.Controls.Add(DeviceInfoCard("board", "device.board", "component"));
+            _deviceFlow.Controls.Add(DeviceInfoCard("storage", "device.storage", "drive"));
+            _deviceFlow.Controls.Add(DeviceInfoCard("network", "device.network", "network"));
+            _deviceFlow.Controls.Add(DeviceInfoCard("sensors", "device.sensors", "sensor"));
+            page.Controls.Add(_deviceFlow);
+            SetDeviceLoading();
+        }
+
+        RoundPanel DeviceInfoCard(string key, string titleKey, string iconKind)
+        {
+            var card = new RoundPanel { Size = new Size(315, 168), Margin = new Padding(8), BackColor = Card, BorderColor = Border, Radius = 14 };
+            var icon = new IconCanvas(iconKind, 42) { AccentColor = Accent, Location = new Point(16, 16) };
+            var title = Register(new Label { Font = new Font("Segoe UI Semibold", 11.5f), ForeColor = Accent, Location = new Point(70, 18), Size = new Size(225, 26), AutoEllipsis = true }, titleKey);
+            var value = new Label { Font = new Font("Segoe UI", 9f), ForeColor = TextMain, Location = new Point(18, 64), Size = new Size(279, 88), AutoEllipsis = true };
+            card.Controls.Add(icon); card.Controls.Add(title); card.Controls.Add(value);
+            _deviceValues[key] = value;
+            return card;
+        }
+
+        void SetDeviceLoading()
+        {
+            foreach (var label in _deviceValues.Values) label.Text = T("device.loading");
+        }
+
+        void LoadDeviceInfoAsync(bool force)
+        {
+            if (_deviceFlow == null || (_deviceLoaded && !force)) return;
+            int request = Interlocked.Increment(ref _deviceRequestId);
+            bool english = _english;
+            SetDeviceLoading();
+            if (_deviceRefresh != null) _deviceRefresh.Enabled = false;
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                Dictionary<string, string> data;
+                try { data = ReadDeviceInfo(english); }
+                catch (Exception ex)
+                {
+                    data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var key in _deviceValues.Keys) data[key] = UiText.Get("device.error", english) + ex.Message;
+                }
+                if (IsDisposed || !IsHandleCreated) return;
+                BeginInvoke(new Action(delegate
+                {
+                    if (request != _deviceRequestId || IsDisposed) return;
+                    foreach (var kv in _deviceValues)
+                    {
+                        string value;
+                        kv.Value.Text = data.TryGetValue(kv.Key, out value) && !string.IsNullOrWhiteSpace(value) ? value : UiText.Get("device.unavailable", english);
+                    }
+                    _deviceLoaded = true;
+                    if (_deviceRefresh != null) _deviceRefresh.Enabled = true;
+                }));
+            });
+        }
+
+        static string Local(bool english, string portuguese, string englishText)
+        {
+            return english ? englishText : portuguese;
+        }
+
+        static string WmiJoin(string scopePath, string query, Func<ManagementObject, string> formatter)
+        {
+            var lines = new List<string>();
+            try
+            {
+                var scope = new ManagementScope(string.IsNullOrEmpty(scopePath) ? @"\\.\root\cimv2" : scopePath);
+                scope.Connect();
+                using (var searcher = new ManagementObjectSearcher(scope, new ObjectQuery(query)))
+                using (var results = searcher.Get())
+                {
+                    foreach (ManagementObject item in results)
+                    {
+                        using (item)
+                        {
+                            string line = formatter(item);
+                            if (!string.IsNullOrWhiteSpace(line)) lines.Add(line.Trim());
+                        }
+                    }
+                }
+            }
+            catch { }
+            return string.Join("\n", lines.ToArray());
+        }
+
+        static string WmiValue(ManagementObject item, string property)
+        {
+            try
+            {
+                object value = item[property];
+                return value == null ? "" : Convert.ToString(value).Trim();
+            }
+            catch { return ""; }
+        }
+
+        static string FormatBytes(string raw)
+        {
+            ulong bytes;
+            if (!UInt64.TryParse(raw, out bytes) || bytes == 0) return "—";
+            double value = bytes;
+            string[] units = { "B", "KB", "MB", "GB", "TB" };
+            int unit = 0;
+            while (value >= 1024 && unit < units.Length - 1) { value /= 1024; unit++; }
+            return value.ToString(value >= 100 ? "0" : "0.0") + " " + units[unit];
+        }
+
+        static Dictionary<string, string> ReadDeviceInfo(bool english)
+        {
+            var data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            data["system"] = WmiJoin(null, "SELECT Manufacturer,Model,SystemType,TotalPhysicalMemory FROM Win32_ComputerSystem", delegate(ManagementObject m)
+            {
+                return WmiValue(m, "Manufacturer") + " " + WmiValue(m, "Model") + "\n" +
+                    Local(english, "Tipo: ", "Type: ") + WmiValue(m, "SystemType") + "\n" +
+                    Local(english, "RAM total: ", "Total RAM: ") + FormatBytes(WmiValue(m, "TotalPhysicalMemory"));
+            });
+            string os = WmiJoin(null, "SELECT Caption,Version,OSArchitecture FROM Win32_OperatingSystem", delegate(ManagementObject m)
+            {
+                return WmiValue(m, "Caption") + "\n" + Local(english, "Versão: ", "Version: ") + WmiValue(m, "Version") + " · " + WmiValue(m, "OSArchitecture");
+            });
+            if (!string.IsNullOrWhiteSpace(os)) data["system"] = data["system"] + "\n" + os;
+
+            data["cpu"] = WmiJoin(null, "SELECT Name,NumberOfCores,NumberOfLogicalProcessors,CurrentClockSpeed,MaxClockSpeed,LoadPercentage FROM Win32_Processor", delegate(ManagementObject m)
+            {
+                return WmiValue(m, "Name") + "\n" +
+                    Local(english, "Núcleos/threads: ", "Cores/threads: ") + WmiValue(m, "NumberOfCores") + "/" + WmiValue(m, "NumberOfLogicalProcessors") + "\n" +
+                    Local(english, "Frequência: ", "Frequency: ") + WmiValue(m, "CurrentClockSpeed") + "/" + WmiValue(m, "MaxClockSpeed") + " MHz\n" +
+                    Local(english, "Uso: ", "Load: ") + WmiValue(m, "LoadPercentage") + "%";
+            });
+            data["gpu"] = WmiJoin(null, "SELECT Name,AdapterRAM,DriverVersion,CurrentHorizontalResolution,CurrentVerticalResolution FROM Win32_VideoController", delegate(ManagementObject m)
+            {
+                return WmiValue(m, "Name") + "\n" + Local(english, "Memória: ", "Memory: ") + FormatBytes(WmiValue(m, "AdapterRAM")) + "\n" +
+                    Local(english, "Driver: ", "Driver: ") + WmiValue(m, "DriverVersion") + "\n" +
+                    Local(english, "Resolução: ", "Resolution: ") + WmiValue(m, "CurrentHorizontalResolution") + " × " + WmiValue(m, "CurrentVerticalResolution");
+            });
+            data["memory"] = WmiJoin(null, "SELECT Manufacturer,PartNumber,Capacity,Speed,ConfiguredClockSpeed FROM Win32_PhysicalMemory", delegate(ManagementObject m)
+            {
+                string speed = WmiValue(m, "ConfiguredClockSpeed");
+                if (string.IsNullOrEmpty(speed) || speed == "0") speed = WmiValue(m, "Speed");
+                return WmiValue(m, "Manufacturer") + " " + WmiValue(m, "PartNumber") + "\n" + FormatBytes(WmiValue(m, "Capacity")) + " · " + speed + " MHz";
+            });
+            string board = WmiJoin(null, "SELECT Manufacturer,Product,Version FROM Win32_BaseBoard", delegate(ManagementObject m)
+            {
+                return WmiValue(m, "Manufacturer") + " " + WmiValue(m, "Product") + " · " + WmiValue(m, "Version");
+            });
+            string bios = WmiJoin(null, "SELECT Manufacturer,SMBIOSBIOSVersion,ReleaseDate FROM Win32_BIOS", delegate(ManagementObject m)
+            {
+                return "BIOS: " + WmiValue(m, "Manufacturer") + " " + WmiValue(m, "SMBIOSBIOSVersion");
+            });
+            data["board"] = board + (string.IsNullOrWhiteSpace(bios) ? "" : "\n" + bios);
+            data["storage"] = WmiJoin(null, "SELECT Model,InterfaceType,MediaType,Size FROM Win32_DiskDrive", delegate(ManagementObject m)
+            {
+                return WmiValue(m, "Model") + "\n" + WmiValue(m, "InterfaceType") + " · " + FormatBytes(WmiValue(m, "Size"));
+            });
+            data["network"] = WmiJoin(null, "SELECT Description,MACAddress,IPAddress FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled=True", delegate(ManagementObject m)
+            {
+                string ip = "";
+                try
+                {
+                    var addresses = m["IPAddress"] as string[];
+                    if (addresses != null && addresses.Length > 0) ip = addresses[0];
+                }
+                catch { }
+                return WmiValue(m, "Description") + "\nIP: " + ip + "\nMAC: " + WmiValue(m, "MACAddress");
+            });
+            string temperatures = WmiJoin(@"\\.\root\WMI", "SELECT CurrentTemperature,InstanceName FROM MSAcpi_ThermalZoneTemperature", delegate(ManagementObject m)
+            {
+                double raw;
+                if (!Double.TryParse(WmiValue(m, "CurrentTemperature"), out raw) || raw <= 0) return "";
+                return Local(english, "Temperatura ACPI: ", "ACPI temperature: ") + (raw / 10.0 - 273.15).ToString("0.0") + " °C";
+            });
+            string load = WmiJoin(null, "SELECT LoadPercentage,CurrentClockSpeed FROM Win32_Processor", delegate(ManagementObject m)
+            {
+                return Local(english, "CPU: ", "CPU: ") + WmiValue(m, "LoadPercentage") + "% · " + WmiValue(m, "CurrentClockSpeed") + " MHz";
+            });
+            data["sensors"] = load + "\n" + (string.IsNullOrWhiteSpace(temperatures) ? UiText.Get("device.unavailable", english) : temperatures);
+            return data;
+        }
+
         void BuildPageConfiguracoes()
         {
             var page = new Panel { BackColor = Bg, Visible = false };
             _content.Controls.Add(page); _pages["configuracoes"] = page;
-            page.Controls.Add(Register(new Label { Font = new Font("Segoe UI Semibold", 22f), ForeColor = TextMain, Location = new Point(10, 18), AutoSize = true }, "page.configuracoes.title"));
-            page.Controls.Add(Register(new Label { ForeColor = Muted, Location = new Point(12, 58), AutoSize = true }, "page.configuracoes.desc"));
+            page.Controls.Add(Register(new Label { Font = new Font("Segoe UI Semibold", 22f), ForeColor = TextMain, Location = new Point(10, 18), Size = new Size(600, 38), AutoEllipsis = true }, "page.configuracoes.title"));
+            page.Controls.Add(Register(new Label { ForeColor = Muted, Location = new Point(12, 58), Size = new Size(600, 24), AutoEllipsis = true }, "page.configuracoes.desc"));
             _helpScroll = new Panel { BackColor = Bg, AutoScroll = true };
             _helpBox = new RoundPanel { BackColor = Card, BorderColor = Border, Radius = 14 };
             _helpScroll.Controls.Add(_helpBox);
@@ -1138,6 +1431,7 @@ namespace PCOtimizador
             HighlightNav(target);
             UpdateHero();
             LayoutVisuals();
+            if (string.Equals(target, "dispositivo", StringComparison.OrdinalIgnoreCase)) LoadDeviceInfoAsync(false);
         }
 
         Button FlatBtn(int x, int y, int w, int h, string text, Color bg)
@@ -1156,7 +1450,8 @@ namespace PCOtimizador
 
         void ScheduleWeekly()
         {
-            if (MessageBox.Show("Criar limpeza automática?\n\n• Domingo às 10:00\n• Só Limpeza Segura (SAFE)\n• Não altera DNS/energia", "Agendar", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            string message = Local(_english, "Criar limpeza automática?\n\n• Domingo às 10:00\n• Somente Limpeza Segura\n• Não altera DNS/energia", "Create automatic cleanup?\n\n• Sunday at 10:00 AM\n• Safe Cleanup only\n• Does not change DNS/power settings");
+            if (MessageBox.Show(message, Local(_english, "Agendar", "Schedule"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
             RunCli("-Mode schedule -AutoYes");
         }
 
@@ -1166,7 +1461,7 @@ namespace PCOtimizador
             {
                 if (!Directory.Exists(_logsDir)) Directory.CreateDirectory(_logsDir);
                 Process.Start("explorer.exe", _logsDir);
-                LogLine("Abrindo logs: " + _logsDir);
+                LogLine(Local(_english, "Abrindo registros: ", "Opening logs: ") + _logsDir);
             }
             catch (Exception ex) { MessageBox.Show(ex.Message, "Logs"); }
         }
@@ -1175,9 +1470,9 @@ namespace PCOtimizador
         {
             _cancelRequested = true;
             try { File.WriteAllText(_cancelFile, "1"); } catch { }
-            _taskLabel.Text = "Cancelando (aguardando etapa atual)...";
+            _taskLabel.Text = Local(_english, "Cancelando (aguardando a etapa atual)...", "Cancelling (waiting for the current step)...");
             _pctLabel.ForeColor = Warn;
-            LogLine("Cancelamento cooperativo solicitado (sem Kill).");
+            LogLine(Local(_english, "Cancelamento seguro solicitado.", "Safe cancellation requested."));
         }
 
         void RefreshHealthAsync()
@@ -1211,7 +1506,7 @@ namespace PCOtimizador
                                 {
                                     int.TryParse(parts[0], out _healthScore);
                                     string grade = parts.Length > 1 ? parts[1] : "";
-                                    BeginInvoke(new Action(() => { if (!IsDisposed && IsHandleCreated) _healthLabel.Text = "Health\n" + _healthScore + "/100" + (grade != "" ? "  (" + grade + ")" : ""); }));
+                                    BeginInvoke(new Action(() => { if (!IsDisposed && IsHandleCreated) _healthLabel.Text = T("health.caption") + "\n" + _healthScore + "/100" + (grade != "" ? "  (" + grade + ")" : ""); }));
                                 }
                             }
                         }
@@ -1229,20 +1524,32 @@ namespace PCOtimizador
             else if (name == "net") HighlightNav("internet");
             ShowPage("inicio");
             string explain = PresetExplain(name);
-            string msg = explain + "\n\nExecutar '" + name + "'" + (_dry.Checked ? " (DRY-RUN)" : "") + "?";
+            string msg = explain + "\n\n" + Local(_english, "Executar '" + name + "'", "Run '" + name + "'") + (_dry.Checked ? " (" + T("dryrun") + ")" : "") + "?";
             if (highRisk && !_dry.Checked)
             {
-                if (MessageBox.Show("ATENÇÃO — pode alterar DNS / IP / energia\n\n" + explain + "\n\nContinuar?", "Confirmar RISK", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                if (MessageBox.Show(Local(_english, "ATENÇÃO — pode alterar DNS / IP / energia\n\n", "WARNING — may change DNS / IP / power settings\n\n") + explain + "\n\n" + Local(_english, "Continuar?", "Continue?"), Local(_english, "Confirmar RISCO", "Confirm RISK"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             }
-            else if (MessageBox.Show(msg, "Confirmar", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            else if (MessageBox.Show(msg, Local(_english, "Confirmar", "Confirm"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
             var args = "-Preset " + name + " -AutoYes -StreamProgress";
             if (_dry.Checked) args += " -DryRun";
             if (highRisk && !_dry.Checked) args += " -AllowHighRisk";
             RunCli(args);
         }
 
-        static string PresetExplain(string name)
+        string PresetExplain(string name)
         {
+            if (_english)
+            {
+                switch (name)
+                {
+                    case "safe": return "Safe Cleanup: temporary files, caches and TRIM.\nDoes not empty the Recycle Bin or change DNS/power settings.";
+                    case "gamer": return "Gaming Turbo: cleanup, high performance and optional DNS/network adjustments.";
+                    case "net": return "Network: flushes DNS/ARP and may renew IP and use Cloudflare DNS.";
+                    case "notebook": return "Laptop: safe cleanup and balanced power plan.";
+                    case "full": return "Full: broad cleanup including CleanMgr, Recycle Bin and app/browser caches.";
+                    default: return "Profile: " + name;
+                }
+            }
             switch (name)
             {
                 case "safe": return "Limpeza Segura: temporários, caches e TRIM.\nNão esvazia a Lixeira nem mexe em DNS/energia.";
@@ -1263,7 +1570,7 @@ namespace PCOtimizador
             var presets = Path.Combine(_root, "core", "presets.json");
             if (!File.Exists(cli) || !File.Exists(engine))
             {
-                MessageBox.Show("Faltam arquivos obrigatórios na pasta do programa:\nPC-Otimizador-CLI.ps1 e Engine.ps1\n\nExtraia o ZIP completo da Release.", "Arquivo faltando", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(Local(_english, "Faltam arquivos obrigatórios na pasta do programa:\nPC-Otimizador-CLI.ps1 e Engine.ps1\n\nExtraia o ZIP completo da versão publicada.", "Required files are missing from the program folder:\nPC-Otimizador-CLI.ps1 and Engine.ps1\n\nExtract the complete release ZIP."), Local(_english, "Arquivo ausente", "Missing file"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             if (!File.Exists(presets)) LogLine("Aviso: core/presets.json ausente — usando fallback do Engine.");
@@ -1275,8 +1582,8 @@ namespace PCOtimizador
             _bar.Value = 0;
             _pctLabel.Text = "0%";
             _pctLabel.ForeColor = Accent;
-            _taskLabel.Text = "Iniciando...";
-            _beforeAfter.Text = "EM ANDAMENTO\nAguarde o progresso.";
+            _taskLabel.Text = T("task.starting");
+            _beforeAfter.Text = T("stats.running");
             LogLine("Início: " + extraArgs);
             var psi = new ProcessStartInfo
             {
@@ -1305,24 +1612,24 @@ namespace PCOtimizador
                         _running = false; _btnCancel.Enabled = false; _btnCancel.Visible = false;
                         if (_cancelRequested)
                         {
-                            _taskLabel.Text = "Cancelado"; _pctLabel.ForeColor = Warn; LogLine("Execução cancelada pelo usuário.");
+                            _taskLabel.Text = Local(_english, "Cancelado", "Cancelled"); _pctLabel.ForeColor = Warn; LogLine(Local(_english, "Execução cancelada pelo usuário.", "Run cancelled by the user."));
                         }
                         else if (exitCode != 0)
                         {
-                            _taskLabel.Text = "Falhou (código " + exitCode + ")"; _pctLabel.ForeColor = Danger; LogLine("CLI terminou com código " + exitCode + ".");
-                            MessageBox.Show("A operação não foi concluída. Consulte o log para detalhes.", "PC Otimizador", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            _taskLabel.Text = Local(_english, "Falhou (código ", "Failed (code ") + exitCode + ")"; _pctLabel.ForeColor = Danger; LogLine(Local(_english, "A linha de comando terminou com código ", "Command line finished with code ") + exitCode + ".");
+                            MessageBox.Show(Local(_english, "A operação não foi concluída. Consulte o registro para detalhes.", "The operation did not complete. Check the log for details."), T("app.title"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                         }
                         else
                         {
                             if (_bar.Value < 100) _bar.Value = 100;
-                            _pctLabel.Text = "100%"; _taskLabel.Text = "Concluído"; _pctLabel.ForeColor = Accent;
+                            _pctLabel.Text = "100%"; _taskLabel.Text = Local(_english, "Concluído", "Completed"); _pctLabel.ForeColor = Accent;
                         }
                         HighlightNav("inicio");
                     }));
                 }
                 catch (Exception ex)
                 {
-                    BeginInvoke(new Action(() => { _running = false; _btnCancel.Enabled = false; _btnCancel.Visible = false; LogLine(ex.Message); MessageBox.Show(ex.Message + "\n\nSe o antivírus bloqueou, use Executar.bat.", "Erro"); }));
+                    BeginInvoke(new Action(() => { _running = false; _btnCancel.Enabled = false; _btnCancel.Visible = false; LogLine(ex.Message); MessageBox.Show(ex.Message + Local(_english, "\n\nSe o antivírus bloqueou, use Executar.bat.", "\n\nIf antivirus blocked the app, use Executar.bat."), Local(_english, "Erro", "Error")); }));
                 }
             });
         }
@@ -1350,7 +1657,8 @@ namespace PCOtimizador
                 var p = line.Split('|');
                 if (p.Length >= 6)
                 {
-                    _diskFree = p[2]; _diskTot = p[3]; _beforeAfter.Text = "ANTES   " + p[2] + " GB\nlivres de " + p[3] + " GB   ·   RAM " + p[4] + "/" + p[5] + " GB";
+                    _diskFree = p[2]; _diskTot = p[3];
+                    _beforeAfter.Text = Local(_english, "ANTES   " + p[2] + " GB\nlivres de " + p[3] + " GB   ·   RAM ", "BEFORE   " + p[2] + " GB\nfree of " + p[3] + " GB   ·   RAM ") + p[4] + "/" + p[5] + " GB";
                 }
                 return;
             }
@@ -1360,21 +1668,21 @@ namespace PCOtimizador
                 if (p.Length >= 8)
                 {
                     string freed = p[6]; string score = p.Length > 8 ? p[8] : "—";
-                    _beforeAfter.Text = "ANTES   " + _diskFree + " GB   →   DEPOIS   " + p[2] + " GB\n" + (_dry.Checked ? "Estimado ~" : "Liberado ~") + freed + " MB   ·   RAM " + p[4] + "/" + p[5] + " GB";
-                    _healthLabel.Text = "Health\n" + score + "/100"; LogLine((_dry.Checked ? "Estimativa: ~" : "Resultado: +") + freed + " MB | Health " + score);
+                    _beforeAfter.Text = Local(_english, "ANTES   " + _diskFree + " GB   →   DEPOIS   " + p[2] + " GB\n" + (_dry.Checked ? "Estimado ~" : "Liberado ~"), "BEFORE   " + _diskFree + " GB   →   AFTER   " + p[2] + " GB\n" + (_dry.Checked ? "Estimated ~" : "Freed ~")) + freed + " MB   ·   RAM " + p[4] + "/" + p[5] + " GB";
+                    _healthLabel.Text = T("health.caption") + "\n" + score + "/100"; LogLine(Local(_english, _dry.Checked ? "Estimativa: ~" : "Resultado: +", _dry.Checked ? "Estimate: ~" : "Result: +") + freed + " MB | " + T("health.caption") + " " + score);
                 }
                 return;
             }
             if (line.StartsWith("##HEALTH##|"))
             {
                 var parts = line.Substring("##HEALTH##|".Length).Split('|');
-                if (parts.Length >= 1) { _healthLabel.Text = "Health\n" + parts[0] + "/100" + (parts.Length > 1 ? "  (" + parts[1] + ")" : ""); _beforeAfter.Text = "SAÚDE DO SISTEMA\n" + string.Join("  ·  ", parts); }
+                if (parts.Length >= 1) { _healthLabel.Text = T("health.caption") + "\n" + parts[0] + "/100" + (parts.Length > 1 ? "  (" + parts[1] + ")" : ""); _beforeAfter.Text = Local(_english, "SAÚDE DO SISTEMA\n", "SYSTEM HEALTH\n") + string.Join("  ·  ", parts); }
                 return;
             }
             if (line.StartsWith("##DONE##|"))
             {
                 string status = line.Substring(9); LogLine("Status: " + status);
-                if (status.IndexOf("CANCEL", StringComparison.OrdinalIgnoreCase) >= 0) { _cancelRequested = true; _taskLabel.Text = "Cancelado"; _pctLabel.ForeColor = Warn; }
+                if (status.IndexOf("CANCEL", StringComparison.OrdinalIgnoreCase) >= 0) { _cancelRequested = true; _taskLabel.Text = Local(_english, "Cancelado", "Cancelled"); _pctLabel.ForeColor = Warn; }
                 return;
             }
             LogLine(line);
@@ -1382,7 +1690,7 @@ namespace PCOtimizador
 
         void LogLine(string msg)
         {
-            if (_statusLabel != null) _statusLabel.Text = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + msg;
+            if (_statusLabel != null) _statusLabel.Text = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + (_english ? T("status.activity") : msg);
             try
             {
                 if (!Directory.Exists(_logsDir)) Directory.CreateDirectory(_logsDir);

@@ -11,7 +11,7 @@ function Assert-True([bool]$Cond, [string]$Name) {
   else { Write-Host "  FAIL $Name" -ForegroundColor Red; $script:failed++ }
 }
 
-Write-Host '== Engine tests v5.5 ==' -ForegroundColor Cyan
+Write-Host '== Engine tests v5.6 ==' -ForegroundColor Cyan
 Assert-True (Test-Path function:Get-HealthScore) 'Get-HealthScore'
 Assert-True (Test-Path function:Get-DriveMediaInfo) 'Get-DriveMediaInfo'
 Assert-True (Test-Path function:Test-PathWhitelisted) 'Test-PathWhitelisted'

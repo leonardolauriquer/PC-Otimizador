@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Linux-Bash-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux">
   <img src="https://img.shields.io/badge/macOS-Bash-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Android-Termux-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
-  <img src="https://img.shields.io/badge/v5.5.4-Hardening-0d9488?style=for-the-badge" alt="v5.5.4">
+  <img src="https://img.shields.io/badge/v5.6.0-Device%20Inspector-0d9488?style=for-the-badge" alt="v5.6.0">
   <img src="https://img.shields.io/badge/Licença-MIT-22c55e?style=for-the-badge" alt="MIT">
 </p>
 
@@ -77,15 +77,17 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 
 ---
 
-## Novidades v5.5.4
+## Novidades v5.6.0
 
 | Recurso | Descrição |
 |---------|-----------|
 | **Dashboard visual redesenhado** | GUI nativa com tema neon, sidebar com ícones, cards responsivos, progresso com glow e métricas antes/depois |
 | **Layout responsivo corrigido** | Coordenadas relativas por página, colunas com largura estável, título medido por fonte e páginas internas com fluxo/scroll |
-| **Navegação funcional** | As sete entradas da barra lateral agora abrem páginas próprias, com ações e conteúdo coerentes; páginas secundárias não exibem o painel do dashboard por cima |
-| **Ícones vetoriais refinados** | Sistema de ícones consistente, antialiasing, contraste por estado e novos símbolos para rede, agenda e logs |
-| **Troca de idioma** | Seletor Português/English no rodapé da barra lateral, aplicado imediatamente em navegação, páginas, cards e orientações |
+| **Inspetor do dispositivo** | Nova aba com CPU, GPU, RAM por módulo, placa-mãe, BIOS, discos, rede, frequências, carga e temperaturas expostas pelo Windows |
+| **Navegação funcional** | As oito entradas da barra lateral abrem páginas próprias; Configurações não retorna mais ao Início e páginas secundárias não recebem o dashboard por cima |
+| **Ícones oficiais do Windows** | Interface usa **Segoe Fluent Icons**, sistema recomendado pela Microsoft no Windows 11, com fallback para Segoe MDL2 Assets no Windows 10 |
+| **Idioma consistente** | Português e inglês são aplicados imediatamente ao título, navegação, cards, modo de simulação, saúde, confirmações, resultados e orientações |
+| **Modo de simulação reposicionado** | O controle fica em uma linha separada dos botões minimizar/maximizar/fechar e possui teste automático contra sobreposição |
 | **Acabamento visual do dashboard** | Subtítulo sem clipping, métricas com ícones dedicados, painel de status compacto e botão PARAR oculto até existir uma execução |
 | **Allowlist de limpeza** | Raízes, ancestrais, pastas pessoais e reparse points são recusados antes de qualquer exclusão |
 | **Risco aplicado ponta a ponta** | DNS, energia, rede, Lixeira, CleanMgr, Prefetch e upgrade exigem confirmação explícita |
@@ -94,6 +96,8 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 | **Presets seguros revisados** | A Limpeza Segura não esvazia a Lixeira, não executa CleanMgr e não força o fechamento de aplicativos |
 | **Adapters Unix mais restritos** | Linux/macOS limpam apenas temporários antigos do usuário; Termux permanece no sandbox do próprio app |
 | **CI e auditoria** | Testes de engine, testes estáticos, sintaxe Bash, JSON e pacote de release são verificados no CI |
+
+Os ícones seguem a documentação oficial [Segoe Fluent Icons](https://learn.microsoft.com/windows/apps/design/iconography/segoe-fluent-icons-font) e os princípios de [iconografia do Windows](https://learn.microsoft.com/windows/apps/design/signature-experiences/iconography). A fonte já faz parte do Windows; nenhum pacote de ícones de procedência incerta é distribuído.
 
 > O executável distribuído não possui assinatura Authenticode. Se o SmartScreen alertar, use `Executar.bat` ou verifique o hash da release antes de executar.
 
@@ -195,8 +199,8 @@ powershell -ExecutionPolicy Bypass -File .\Compilar-EXE.ps1
 ```
 
 ```bash
-git tag v5.5.4
-git push origin v5.5.4
+git tag v5.6.0
+git push origin v5.6.0
 # Actions: testes Windows + smoke Bash → ZIP + SHA256SUMS.txt
 ```
 

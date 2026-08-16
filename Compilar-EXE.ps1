@@ -9,7 +9,7 @@ if (Test-Path $out) {
 }
 Write-Host 'Compilando GUI C# nativa...' -ForegroundColor Cyan
 & $csc /nologo /target:winexe /optimize+ /platform:anycpu `
-  /reference:System.Windows.Forms.dll /reference:System.Drawing.dll `
+  /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Management.dll `
   /win32manifest:app.manifest /out:$out GuiNative.cs
 if (-not (Test-Path $out)) { throw 'Falha compile' }
 Write-Host ("OK: {0} ({1:N1} KB)" -f $out, ((Get-Item $out).Length/1KB)) -ForegroundColor Green
