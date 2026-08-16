@@ -1,6 +1,6 @@
 {
   "name": "PC Otimizador Pro",
-  "version": "5.5.0",
+  "version": "5.5.1",
   "policy": {
     "never_delete": [
       "Documents", "Documentos", "Pictures", "Fotos", "Imagens",
