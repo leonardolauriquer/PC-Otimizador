@@ -45,6 +45,12 @@ Assert-Contains $gui 'FormBorderStyle = FormBorderStyle.None' 'GUI custom chrome
 Assert-Contains $gui 'void LayoutRoot()' 'GUI sidebar/content bounds'
 Assert-Contains $gui 'int cellWidth' 'GUI equal card sizing'
 Assert-Contains $gui 'SizeType.Absolute' 'GUI pixel-stable card columns'
+Assert-Contains $gui 'min.Click += (s, e) => WindowState' 'GUI minimize handler'
+Assert-Contains $gui 'max.Click += (s, e) => ToggleMaximize' 'GUI maximize handler'
+Assert-Contains $gui 'close.Click += (s, e) => Close' 'GUI close handler'
+Assert-Contains $gui '_btnCancel.Click += (s, e) => CancelRun' 'GUI cancel handler'
+Assert-Contains $gui 'p.Click += click; iconPanel.Click += click; titleLabel.Click += click' 'GUI preset card handlers'
+Assert-Contains $gui 'p.Click += click; i.Click += click; t.Click += click; s.Click += click' 'GUI tool card handlers'
 
 if ($failed -eq 0) { Write-Host "`nALL STATIC TESTS PASSED" -ForegroundColor Green; exit 0 }
 Write-Host "`n$failed FAILED" -ForegroundColor Red
