@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Linux-Bash-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux">
   <img src="https://img.shields.io/badge/macOS-Bash-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Android-Termux-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
-  <img src="https://img.shields.io/badge/v5.5.2-Hardening-0d9488?style=for-the-badge" alt="v5.5.2">
+  <img src="https://img.shields.io/badge/v5.5.3-Hardening-0d9488?style=for-the-badge" alt="v5.5.3">
   <img src="https://img.shields.io/badge/Licença-MIT-22c55e?style=for-the-badge" alt="MIT">
 </p>
 
@@ -77,12 +77,15 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 
 ---
 
-## Novidades v5.5.2
+## Novidades v5.5.3
 
 | Recurso | Descrição |
 |---------|-----------|
 | **Dashboard visual redesenhado** | GUI nativa com tema neon, sidebar com ícones, cards responsivos, progresso com glow e métricas antes/depois |
 | **Layout responsivo corrigido** | Coordenadas relativas por página, colunas com largura estável, título medido por fonte e páginas internas com fluxo/scroll |
+| **Navegação funcional** | As sete entradas da barra lateral agora abrem páginas próprias, com ações e conteúdo coerentes; páginas secundárias não exibem o painel do dashboard por cima |
+| **Ícones vetoriais refinados** | Sistema de ícones consistente, antialiasing, contraste por estado e novos símbolos para rede, agenda e logs |
+| **Troca de idioma** | Seletor Português/English no rodapé da barra lateral, aplicado imediatamente em navegação, páginas, cards e orientações |
 | **Allowlist de limpeza** | Raízes, ancestrais, pastas pessoais e reparse points são recusados antes de qualquer exclusão |
 | **Risco aplicado ponta a ponta** | DNS, energia, rede, Lixeira, CleanMgr, Prefetch e upgrade exigem confirmação explícita |
 | **Auto-update fail-closed** | ZIP protegido contra traversal, staging privado, arquivos obrigatórios e versão do pacote validados |
@@ -108,7 +111,7 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 |---------|-----------|
 | **GUI = foto do README** | Sidebar + cards + % grande + Health + antes/depois |
 | **Navegação segura** | Menu lateral não dispara limpeza sozinho |
-| **Ferramentas / Ajuda** | Telas dedicadas no dashboard |
+| **Ferramentas / Configurações** | Telas dedicadas no dashboard |
 
 ---
 
@@ -163,6 +166,7 @@ R Remover agenda     H Health   W Whitelist   B Bloat   G GUI   0 Sair
 | `ios/README.md` | Escopo iOS |
 | `Tests/Engine.Tests.ps1` | Testes Windows |
 | `Tests/Static.Tests.ps1` | Testes estáticos de segurança e regressão |
+| `Tests/Gui.Layout.Tests.ps1` | Contrato de layout, navegação, páginas e troca de idioma em três resoluções |
 
 **Whitelist (Windows):** `Documentos\PC-Otimizador-Logs\whitelist.txt`  
 **Logs (Windows):** `Documentos\PC-Otimizador-Logs\sessao-*.txt`
@@ -185,12 +189,13 @@ R Remover agenda     H Health   W Whitelist   B Bloat   G GUI   0 Sair
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Tests\Engine.Tests.ps1
 powershell -ExecutionPolicy Bypass -File .\Tests\Static.Tests.ps1
+powershell -ExecutionPolicy Bypass -File .\Tests\Gui.Layout.Tests.ps1
 powershell -ExecutionPolicy Bypass -File .\Compilar-EXE.ps1
 ```
 
 ```bash
-git tag v5.5.2
-git push origin v5.5.2
+git tag v5.5.3
+git push origin v5.5.3
 # Actions: testes Windows + smoke Bash → ZIP + SHA256SUMS.txt
 ```
 

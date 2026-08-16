@@ -119,12 +119,45 @@ namespace PCOtimizador
 
             var nav = Field<IList>(form, "_navBtns");
             Check(nav != null && nav.Count == 7, size + " sidebar navigation is complete");
-            foreach (string pageName in new[] { "inicio", "ferramentas", "ajuda" })
+            Check(pageMap.Count == 7, size + " has seven distinct sidebar pages");
+            foreach (string featurePageName in new[] { "limpeza", "desempenho", "internet", "inicializacao" })
+            {
+                var featurePage = pageMap[featurePageName] as Panel;
+                FlowLayoutPanel featureFlow = null;
+                if (featurePage != null)
+                    foreach (Control child in featurePage.Controls)
+                        if (child is FlowLayoutPanel && string.Equals(child.Tag as string, "feature-flow", StringComparison.Ordinal)) featureFlow = (FlowLayoutPanel)child;
+                Check(featureFlow != null && featureFlow.AutoScroll && featureFlow.Controls.Count == 3, size + " page " + featurePageName + " has functional cards");
+            }
+            foreach (string pageName in new[] { "inicio", "limpeza", "desempenho", "internet", "inicializacao", "ferramentas", "configuracoes" })
             {
                 InvokePage(form, pageName);
-                string expected = pageName == "inicio" ? "Dashboard" : (pageName == "ferramentas" ? "Ferramentas" : "Configurações");
+                string expected = pageName == "inicio" ? "Dashboard" :
+                    (pageName == "limpeza" ? "Limpeza" :
+                    (pageName == "desempenho" ? "Desempenho" :
+                    (pageName == "internet" ? "Internet" :
+                    (pageName == "inicializacao" ? "Inicialização" :
+                    (pageName == "ferramentas" ? "Ferramentas" : "Configurações")))));
                 var hero = Field<Label>(form, "_heroSub");
                 Check(hero != null && hero.Text.StartsWith(expected, StringComparison.Ordinal), size + " page switch " + pageName);
+                var progressPanel = Field<Control>(form, "_progressBox");
+                if (pageName != "inicio") Check(progressPanel != null && !progressPanel.Visible, size + " dashboard chrome hidden on " + pageName);
+            }
+            var language = Field<ComboBox>(form, "_languageCombo");
+            Check(language != null && language.Items.Count == 2, size + " language selector has two languages");
+            if (language != null)
+            {
+                language.SelectedIndex = 1;
+                var localized = Field<IDictionary>(form, "_localized");
+                var homeControls = localized == null ? null : localized["nav.inicio"] as IList;
+                var homeLabel = homeControls == null || homeControls.Count == 0 ? null : homeControls[0] as Label;
+                Check(homeLabel != null && homeLabel.Text == "HOME", size + " switches to English");
+                var safeControls = localized == null ? null : localized["card.safe.title"] as IList;
+                bool allSafeEnglish = safeControls != null && safeControls.Count >= 2;
+                if (allSafeEnglish) foreach (Control safe in safeControls) allSafeEnglish = allSafeEnglish && safe.Text == "SAFE CLEANUP";
+                Check(allSafeEnglish, size + " translates repeated dashboard cards");
+                language.SelectedIndex = 0;
+                Check(homeLabel != null && homeLabel.Text == "INÍCIO", size + " switches back to Portuguese");
             }
         }
 

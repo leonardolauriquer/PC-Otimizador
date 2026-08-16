@@ -56,6 +56,17 @@ Assert-Contains $gui 'int gridLeft = Math.Max(0, (w - gridWidth) / 2)' 'GUI page
 Assert-Contains $gui 'FlowLayoutPanel' 'GUI responsive tools flow'
 Assert-Contains $gui 'AutoScroll = true' 'GUI scrollable inner pages'
 Assert-Contains $gui '_helpScroll' 'GUI responsive help page'
+Assert-Contains $gui 'static class UiText' 'GUI localization catalog'
+Assert-Contains $gui 'ComboBoxStyle.DropDownList' 'GUI language selector'
+Assert-Contains $gui 'BuildPageLimpeza' 'GUI cleanup page'
+Assert-Contains $gui 'BuildPageDesempenho' 'GUI performance page'
+Assert-Contains $gui 'BuildPageInternet' 'GUI network page'
+Assert-Contains $gui 'BuildPageInicializacao' 'GUI startup page'
+Assert-Contains $gui 'BuildPageConfiguracoes' 'GUI settings page'
+Assert-Contains $gui 'string target = _pages.ContainsKey(name) ? name : "inicio"' 'GUI direct page routing'
+Assert-Contains $gui 'case "network"' 'GUI network icon'
+Assert-Contains $gui 'case "clock"' 'GUI clock icon'
+Assert-Contains $gui 'case "folder"' 'GUI folder icon'
 
 if ($failed -eq 0) { Write-Host "`nALL STATIC TESTS PASSED" -ForegroundColor Green; exit 0 }
 Write-Host "`n$failed FAILED" -ForegroundColor Red
