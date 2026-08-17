@@ -11,7 +11,7 @@ function Assert-True([bool]$Cond, [string]$Name) {
   else { Write-Host "  FAIL $Name" -ForegroundColor Red; $script:failed++ }
 }
 
-Write-Host '== Engine tests v5.9 ==' -ForegroundColor Cyan
+Write-Host '== Engine tests v5.10 ==' -ForegroundColor Cyan
 Assert-True (Test-Path function:Get-HealthScore) 'Get-HealthScore'
 Assert-True (Test-Path function:Get-DriveMediaInfo) 'Get-DriveMediaInfo'
 Assert-True (Test-Path function:Test-PathWhitelisted) 'Test-PathWhitelisted'
@@ -132,6 +132,15 @@ Assert-True (-not (Test-AllowedTweakRegistry -Path 'HKLM:\SOFTWARE\Microsoft\Win
 Assert-True (Test-NagleRestorePath 'Microsoft.PowerShell.Core\Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee') 'nagle allowlist accepts interface path'
 Assert-True (-not (Test-NagleRestorePath 'HKLM:\SOFTWARE\Evil\Interfaces\aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')) 'nagle allowlist rejects other keys'
 Assert-True ((Test-Ipv4Address '1.1.1.1') -and -not (Test-Ipv4Address '999.1.1.1') -and -not (Test-Ipv4Address '1.1.1')) 'IPv4 restore validator'
+
+Assert-True (Test-Path function:Get-ChromiumCacheTargets) 'chromium cache discovery'
+Assert-True (Test-Path function:Get-JunkEstimateMB) 'health junk cache helper'
+Assert-True (Test-ChromiumCacheTarget (Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data\Profile 12\Cache')) 'chromium extra profile cache allowed'
+Assert-True (-not (Test-ChromiumCacheTarget (Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data\Default\Bookmarks'))) 'chromium bookmarks are not a cache target'
+Assert-True (-not (Test-ChromiumCacheTarget (Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data\System Profile\Cache'))) 'chromium system profile refused'
+Assert-True ((Get-FolderSizeMB -Path $PSScriptRoot -BudgetMs 80) -ge 0) 'bounded folder size returns'
+$cacheCfg = Get-CachePathConfig
+Assert-True ($null -ne $cacheCfg -and @($cacheCfg.chromiumUserData).Count -ge 4) 'cache-paths.json loads'
 
 if ($failed -eq 0) { Write-Host "`nALL TESTS PASSED" -ForegroundColor Green; exit 0 }
 Write-Host "`n$failed FAILED" -ForegroundColor Red; exit 1

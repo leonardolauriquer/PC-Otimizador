@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g. v5.9.0)'
+        description: 'Version tag (e.g. v5.10.0)'
         required: true
-        default: 'v5.9.0'
+        default: 'v5.10.0'
 
 permissions:
   contents: read
@@ -54,6 +54,7 @@ jobs:
           bash -n macos/pc-otimizador.sh
           bash -n android/termux-pc-otimizador.sh
           python3 -m json.tool core/presets.json >/dev/null
+          python3 -m json.tool core/cache-paths.json >/dev/null
           python3 -m py_compile core/load_preset.py
           HOME="$(mktemp -d)" bash linux/pc-otimizador.sh --preset safe --dry-run --yes
 
@@ -122,7 +123,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           $must = @(
             'Executar.bat','Engine.ps1','PC-Otimizador-CLI.ps1','PC-Otimizador.exe',
-            'Update.ps1','VERSION','LICENSE','README.md','core\presets.json'
+            'Update.ps1','VERSION','LICENSE','README.md','core\presets.json','core\cache-paths.json'
           )
           foreach ($f in $must) {
             if (-not (Test-Path $f)) { throw "Missing required release file: $f" }

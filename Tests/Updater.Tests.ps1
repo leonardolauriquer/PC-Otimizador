@@ -46,6 +46,8 @@ $source = Get-Content -LiteralPath (Join-Path $root 'Update.ps1') -Raw
 Assert-True ($source.Contains("Write-UpdateStatus 'ROLLED_BACK'") -and $source.Contains('previous-')) 'updater contains backup and automatic rollback path'
 Assert-True ($source.Contains('Hash pos-instalacao invalido')) 'updater verifies installed files after copy'
 Assert-True ($source.Contains('encerrou prematuramente')) 'updater checks new process startup'
+Assert-True ($source.Contains('function Test-LocalInstallIntegrity')) 'updater checks local install before fail-closed'
+Assert-True ($source.Contains('Continuando com a versao local intacta.')) 'updater continues when local files are intact'
 
 if ($failed) { Write-Host "`n$failed FAILED" -ForegroundColor Red; exit 1 }
 Write-Host "`nALL UPDATER TESTS PASSED" -ForegroundColor Green

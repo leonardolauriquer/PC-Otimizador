@@ -22,15 +22,34 @@ function Test-IsAdmin {
 }
 
 function Get-FolderSizeMB {
-  param([string]$Path)
-  if (-not (Test-Path -LiteralPath $Path)) { return 0 }
-  try {
-    $sum = (Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue |
-      Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
-      Measure-Object Length -Sum -ErrorAction SilentlyContinue).Sum
-    if ($null -eq $sum) { return 0 }
-    return [math]::Round($sum / 1MB, 2)
-  } catch { return 0 }
+  param(
+    [string]$Path,
+    [int]$BudgetMs = 800,
+    [int]$MaxFiles = 18000
+  )
+  if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return 0 }
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  $total = [int64]0
+  $files = 0
+  $stack = New-Object 'System.Collections.Generic.Stack[string]'
+  $stack.Push($Path)
+  while ($stack.Count -gt 0) {
+    if ($sw.ElapsedMilliseconds -gt $BudgetMs -or $files -gt $MaxFiles) { break }
+    $dir = $stack.Pop()
+    try {
+      foreach ($file in [IO.Directory]::EnumerateFiles($dir)) {
+        try { $total += (New-Object IO.FileInfo $file).Length; $files++ } catch {}
+        if (($files -band 255) -eq 0 -and $sw.ElapsedMilliseconds -gt $BudgetMs) { break }
+      }
+      foreach ($sub in [IO.Directory]::EnumerateDirectories($dir)) {
+        try {
+          if ([IO.File]::GetAttributes($sub) -band [IO.FileAttributes]::ReparsePoint) { continue }
+          $stack.Push($sub)
+        } catch {}
+      }
+    } catch {}
+  }
+  return [math]::Round($total / 1MB, 2)
 }
 
 function Get-WindowsRoot {
@@ -39,6 +58,120 @@ function Get-WindowsRoot {
   if ($env:SystemRoot) { return $env:SystemRoot }
   if ($env:WINDIR) { return $env:WINDIR }
   return 'C:\Windows'
+}
+
+function Expand-CachePathToken {
+  param([string]$Template)
+  if (-not $Template) { return $null }
+  $localApp = [Environment]::GetFolderPath('LocalApplicationData')
+  $appData = [Environment]::GetFolderPath('ApplicationData')
+  $windows = Get-WindowsRoot
+  $programData = [Environment]::GetFolderPath('CommonApplicationData')
+  $temp = [IO.Path]::GetTempPath()
+  $drive = if ($env:SystemDrive) { $env:SystemDrive } else { $windows.Substring(0, 2) }
+  return $Template.
+    Replace('{LocalAppData}', $localApp).
+    Replace('{RoamingAppData}', $appData).
+    Replace('{Windows}', $windows).
+    Replace('{ProgramData}', $programData).
+    Replace('{Temp}', $temp).
+    Replace('{SystemDrive}', $drive)
+}
+
+function Get-CachePathConfig {
+  $path = Join-Path $PSScriptRoot 'core\cache-paths.json'
+  if (-not (Test-Path -LiteralPath $path)) { return $null }
+  try { return Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop } catch { return $null }
+}
+
+function Get-ChromiumUserDataRoots {
+  $cfg = Get-CachePathConfig
+  $templates = @()
+  if ($cfg -and $cfg.chromiumUserData) { $templates = @($cfg.chromiumUserData | ForEach-Object { [string]$_ }) }
+  if ($templates.Count -eq 0) {
+    $templates = @(
+      '{LocalAppData}\Google\Chrome\User Data',
+      '{LocalAppData}\Microsoft\Edge\User Data',
+      '{LocalAppData}\BraveSoftware\Brave-Browser\User Data',
+      '{LocalAppData}\Opera Software\Opera Stable'
+    )
+  }
+  @($templates | ForEach-Object { Expand-CachePathToken $_ } | Where-Object { $_ } | Select-Object -Unique)
+}
+
+function Get-ChromiumSkipProfiles {
+  $cfg = Get-CachePathConfig
+  if ($cfg -and $cfg.skipProfiles) { return @($cfg.skipProfiles | ForEach-Object { [string]$_ }) }
+  @('System Profile', 'Crashpad', 'GrShaderCache', 'GraphiteDawnCache', 'ShaderCache')
+}
+
+function Get-ChromiumCacheLeaves {
+  $cfg = Get-CachePathConfig
+  if ($cfg -and $cfg.chromiumLeaves) { return @($cfg.chromiumLeaves | ForEach-Object { [string]$_ }) }
+  @('Cache', 'Code Cache', 'GPUCache')
+}
+
+function Test-ChromiumProfileName {
+  param([string]$Name)
+  if (-not $Name -or $Name -match '[\\/]') { return $false }
+  $skip = Get-ChromiumSkipProfiles
+  foreach ($blocked in $skip) {
+    if ([string]::Equals($Name, $blocked, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+  }
+  return $true
+}
+
+function Get-ChromiumCacheTargets {
+  $leaves = Get-ChromiumCacheLeaves
+  $found = New-Object System.Collections.Generic.List[string]
+  foreach ($root in (Get-ChromiumUserDataRoots)) {
+    if (-not $root -or -not (Test-Path -LiteralPath $root)) { continue }
+    foreach ($leaf in $leaves) {
+      $direct = Join-Path $root $leaf
+      if (Test-Path -LiteralPath $direct) { $found.Add($direct) }
+    }
+    Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+      if (-not (Test-ChromiumProfileName $_.Name)) { return }
+      $prefs = Join-Path $_.FullName 'Preferences'
+      $hasCache = Test-Path -LiteralPath (Join-Path $_.FullName 'Cache')
+      if (-not (Test-Path -LiteralPath $prefs) -and -not $hasCache) { return }
+      foreach ($leaf in $leaves) { $found.Add((Join-Path $_.FullName $leaf)) }
+    }
+  }
+  $firefox = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Mozilla\Firefox\Profiles'
+  if (Test-Path -LiteralPath $firefox) {
+    Get-ChildItem -LiteralPath $firefox -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+      $found.Add((Join-Path $_.FullName 'cache2'))
+    }
+  }
+  @($found | Select-Object -Unique)
+}
+
+function Test-ChromiumCacheTarget {
+  param([string]$Path)
+  if (-not $Path) { return $false }
+  try { $full = [IO.Path]::GetFullPath($Path).TrimEnd('\', '/') } catch { return $false }
+  $leaf = Split-Path $full -Leaf
+  if ($leaf -notmatch '^(Cache|Code Cache|GPUCache|cache2)$') { return $false }
+  $firefox = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Mozilla\Firefox\Profiles'
+  if ($leaf -eq 'cache2' -and $firefox -and (Test-PathUnderRoot -Path $full -Root $firefox)) {
+    $parent = Split-Path $full -Parent
+    $grand = Split-Path $parent -Parent
+    return [string]::Equals((Get-FullPathSafe $grand), (Get-FullPathSafe $firefox), [StringComparison]::OrdinalIgnoreCase)
+  }
+  foreach ($root in (Get-ChromiumUserDataRoots)) {
+    if (-not $root -or -not (Test-PathUnderRoot -Path $full -Root $root)) { continue }
+    $rel = $full.Substring((Get-FullPathSafe $root).Length).TrimStart('\', '/')
+    $parts = @($rel -split '[\\/]' | Where-Object { $_ })
+    if ($parts.Count -eq 1) { return $true }
+    if ($parts.Count -eq 2 -and (Test-ChromiumProfileName $parts[0])) { return $true }
+  }
+  return $false
+}
+
+function Get-FullPathSafe {
+  param([string]$Path)
+  try { return [IO.Path]::GetFullPath($Path).TrimEnd('\', '/') } catch { return $Path }
 }
 
 function Get-CleanupAllowedRoots {
@@ -77,14 +210,6 @@ function Get-CleanupAllowedRoots {
     (Join-Path $appData 'Spotify\Storage'),
     (Join-Path $localApp 'Microsoft\Windows\INetCache'),
     (Join-Path $localApp 'Microsoft\Windows\Fonts'),
-    (Join-Path $localApp 'Google\Chrome\User Data\Default\Cache'),
-    (Join-Path $localApp 'Google\Chrome\User Data\Default\Code Cache'),
-    (Join-Path $localApp 'Google\Chrome\User Data\Default\GPUCache'),
-    (Join-Path $localApp 'Microsoft\Edge\User Data\Default\Cache'),
-    (Join-Path $localApp 'Microsoft\Edge\User Data\Default\Code Cache'),
-    (Join-Path $localApp 'Microsoft\Edge\User Data\Default\GPUCache'),
-    (Join-Path $localApp 'BraveSoftware\Brave-Browser\User Data\Default\Cache'),
-    (Join-Path $localApp 'Opera Software\Opera Stable\Cache'),
     (Join-Path $localApp 'Mozilla\Firefox\Profiles'),
     (Join-Path $localApp 'Packages'),
     (Join-Path $systemRoot 'ServiceProfiles\LocalService\AppData\Local\FontCache'),
@@ -93,6 +218,7 @@ function Get-CleanupAllowedRoots {
     (Join-Path $systemDrive 'Windows.old')
   )
   $profileRoot = [Environment]::GetFolderPath('UserProfile')
+  $roots = @($roots) + @(Get-ChromiumCacheTargets)
   return @($roots | Where-Object { $_ } | ForEach-Object {
     try { [IO.Path]::GetFullPath([string]$_).TrimEnd('\','/') } catch { $null }
   } | Where-Object {
@@ -107,6 +233,11 @@ function Test-CleanupTarget {
   try { $full = [IO.Path]::GetFullPath($Path).TrimEnd('\','/') } catch { return $false }
   $root = [IO.Path]::GetPathRoot($full).TrimEnd('\','/')
   if (-not $root -or [string]::Equals($full, $root, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+  if (Test-ChromiumCacheTarget $full) {
+    $chromiumItem = Get-Item -LiteralPath $full -Force -ErrorAction SilentlyContinue
+    if ($chromiumItem -and ($chromiumItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return $false }
+    return $true
+  }
   foreach ($allowed in (Get-CleanupAllowedRoots)) {
     if (Test-PathUnderRoot -Path $full -Root $allowed) {
       $item = Get-Item -LiteralPath $full -Force -ErrorAction SilentlyContinue
@@ -350,7 +481,25 @@ function Submit-TelemetryEvent {
   return $true
 }
 
+function Reset-MetricCache {
+  $script:SnapshotCache = $null
+  $script:SnapshotCacheAt = $null
+  $script:JunkEstimateCache = $null
+  $script:JunkEstimateCacheAt = $null
+}
+
+function Save-SnapshotCache {
+  param($Snapshot)
+  $script:SnapshotCache = $Snapshot
+  $script:SnapshotCacheAt = [DateTime]::UtcNow
+  return $Snapshot
+}
+
 function Get-SystemSnapshot {
+  param([switch]$Force)
+  if (-not $Force -and $script:SnapshotCache -and $script:SnapshotCacheAt -and (([DateTime]::UtcNow - $script:SnapshotCacheAt).TotalSeconds -lt 12)) {
+    return $script:SnapshotCache
+  }
   try {
     $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
     $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
@@ -368,15 +517,15 @@ function Get-SystemSnapshot {
       $driveRoot = if ($env:SystemDrive) { $env:SystemDrive + '\' } else { 'C:\' }
       $drive = New-Object IO.DriveInfo($driveRoot)
       Write-Log 'CIM e WMI indisponiveis; memoria sera marcada como nao mensuravel.' 'WARN'
-      return [pscustomobject]@{
+      return (Save-SnapshotCache ([pscustomobject]@{
         PC = [Environment]::MachineName; OS = [Environment]::OSVersion.VersionString
         DiskFree = [math]::Round($drive.AvailableFreeSpace / 1GB, 2); DiskTot = [math]::Round($drive.TotalSize / 1GB, 2)
         DiskUsed = [math]::Round((($drive.TotalSize - $drive.AvailableFreeSpace) / $drive.TotalSize) * 100, 1)
         RamUsed = 0; RamTot = 0
-      }
+      }))
     }
   }
-  [pscustomobject]@{
+  return (Save-SnapshotCache ([pscustomobject]@{
     PC       = $cs.Name
     OS       = ($os.Caption -replace 'Microsoft ', '')
     DiskFree = [math]::Round($disk.FreeSpace / 1GB, 2)
@@ -384,7 +533,7 @@ function Get-SystemSnapshot {
     DiskUsed = [math]::Round((($disk.Size - $disk.FreeSpace) / $disk.Size) * 100, 1)
     RamUsed  = [math]::Round(($os.TotalVisibleMemorySize - $os.FreePhysicalMemory) / 1MB, 1)
     RamTot   = [math]::Round($os.TotalVisibleMemorySize / 1MB, 1)
-  }
+  }))
 }
 
 function Set-RegDword {
@@ -516,20 +665,8 @@ function Invoke-CleanLogs {
 function Invoke-CleanBrowserCaches {
   Write-Log 'Cache navegadores (favoritos/senhas preservados)...'
   $f = 0.0
-  $paths = @(
-    "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache",
-    "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Code Cache",
-    "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\GPUCache",
-    "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache",
-    "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Code Cache",
-    "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\GPUCache",
-    "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\Cache",
-    "$env:LOCALAPPDATA\Opera Software\Opera Stable\Cache"
-  )
+  $paths = @(Get-ChromiumCacheTargets)
   foreach ($t in $paths) { $f += [double](Remove-PathSafe $t -Recurse) }
-  Get-ChildItem "$env:LOCALAPPDATA\Mozilla\Firefox\Profiles" -Directory -EA SilentlyContinue | ForEach-Object {
-    $f += [double](Remove-PathSafe (Join-Path $_.FullName 'cache2') -Recurse)
-  }
   Write-Log "Browsers: ~$f MB"; return $f
 }
 
@@ -1083,6 +1220,16 @@ function Get-DriveMediaInfo {
   return $info
 }
 
+function Get-JunkEstimateMB {
+  if ($script:JunkEstimateCacheAt -and (([DateTime]::UtcNow - $script:JunkEstimateCacheAt).TotalSeconds -lt 20)) {
+    return [double]$script:JunkEstimateCache
+  }
+  $junk = (Get-OptionEstimateMB 'temp') + (Get-OptionEstimateMB 'update') + (Get-OptionEstimateMB 'wer')
+  $script:JunkEstimateCache = $junk
+  $script:JunkEstimateCacheAt = [DateTime]::UtcNow
+  return $junk
+}
+
 function Get-HealthScore {
   $s = Get-SystemSnapshot
   $score = 100
@@ -1095,8 +1242,7 @@ function Get-HealthScore {
   $ramPct = if ($s.RamTot -gt 0) { ($s.RamUsed / $s.RamTot) * 100 } else { 50 }
   if ($ramPct -ge 90) { $score -= 20 }
   elseif ($ramPct -ge 80) { $score -= 10 }
-  # reclaimable junk
-  $junk = (Get-OptionEstimateMB 'temp') + (Get-OptionEstimateMB 'update') + (Get-OptionEstimateMB 'wer')
+  $junk = Get-JunkEstimateMB
   if ($junk -ge 5000) { $score -= 20 }
   elseif ($junk -ge 2000) { $score -= 12 }
   elseif ($junk -ge 500) { $score -= 6 }
@@ -1156,12 +1302,14 @@ function Invoke-OptimizationBatch {
     [hashtable]$Actions,
     [switch]$DryRun,
     [switch]$EstimateOnly,
-    [switch]$AllowHighRisk
+    [switch]$AllowHighRisk,
+    [switch]$SkipSizeWalk
   )
   $null = Enter-ExecutionLock
   $script:ActionResults = New-Object Collections.Generic.List[object]
   try {
   Reset-CancelFlag
+  Reset-MetricCache
   Import-Whitelist
   $script:DryRun = [bool]$DryRun
   $null = Initialize-SessionLog
@@ -1181,7 +1329,12 @@ function Invoke-OptimizationBatch {
 
   Write-Log ("Inicio batch | itens={0} | dry={1}" -f $Ids.Count, $script:DryRun)
   try { [Console]::Out.WriteLine(('##RESULT##|BEFORE|{0}|{1}|{2}|{3}' -f $before.DiskFree, $before.DiskTot, $before.RamUsed, $before.RamTot)) } catch {}
-  $est = Write-EstimatesReport -Ids $Ids
+  $est = 0.0
+  if ($SkipSizeWalk -and -not $EstimateOnly -and -not $DryRun) {
+    Write-Log 'Estimativa de tamanho omitida (ja conferida no consentimento).'
+  } else {
+    $est = Write-EstimatesReport -Ids $Ids
+  }
   $highRisk = @(Get-HighRiskActionIds -Ids $Ids)
   if (-not $DryRun -and -not $EstimateOnly -and $highRisk.Count -gt 0 -and -not $AllowHighRisk) {
     $blockedMsg = "Bloqueado: exige confirmacao de alto risco: {0}" -f ($highRisk -join ', ')
@@ -1264,7 +1417,8 @@ function Invoke-OptimizationBatch {
       $null = Submit-TelemetryEvent $id $contractStatus ([int]$actionTimer.ElapsedMilliseconds) $failureCategory
     }
   }
-  $after = Get-SystemSnapshot
+  Reset-MetricCache
+  $after = Get-SystemSnapshot -Force
   $delta = [math]::Round($after.DiskFree - $before.DiskFree, 2)
   $sum = ("Freed~{0:N0} MB | Disco +{1} GB | cancel={2}" -f $freed, $delta, $cancelled)
   Write-Log $sum
@@ -1328,7 +1482,7 @@ function Get-OptionPathMap {
     prefetch = @((Join-Path $root 'Prefetch'))
     recent   = @([Environment]::GetFolderPath('Recent'))
     gpu      = @((Join-Path $localApp 'D3DSCache'), (Join-Path $localApp 'NVIDIA\DXCache'), (Join-Path $localApp 'NVIDIA\GLCache'), (Join-Path $localApp 'AMD\DxCache'), (Join-Path $localApp 'Intel\ShaderCache'))
-    browser  = @((Join-Path $localApp 'Google\Chrome\User Data\Default\Cache'), (Join-Path $localApp 'Microsoft\Edge\User Data\Default\Cache'), (Join-Path $localApp 'BraveSoftware\Brave-Browser\User Data\Default\Cache'))
+    browser  = @(Get-ChromiumCacheTargets)
     apps     = @((Join-Path $appData 'discord\Cache'), (Join-Path $localApp 'Steam\htmlcache'), (Join-Path $appData 'Microsoft\Teams\Cache'), (Join-Path $appData 'Spotify\Storage'))
     store    = @((Join-Path $localApp 'Microsoft\Windows\INetCache'))
     upgrade  = @((Join-Path $drive '$Windows.~BT'), (Join-Path $drive '$Windows.~WS'), (Join-Path $drive 'Windows.old'))
@@ -1637,6 +1791,10 @@ function Register-WeeklyCleanup {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $payload $file) -Force -ErrorAction Stop
   }
   Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'core\presets.json') -Destination (Join-Path $payload 'core\presets.json') -Force -ErrorAction Stop
+  $cacheMap = Join-Path $PSScriptRoot 'core\cache-paths.json'
+  if (Test-Path -LiteralPath $cacheMap) {
+    Copy-Item -LiteralPath $cacheMap -Destination (Join-Path $payload 'core\cache-paths.json') -Force -ErrorAction SilentlyContinue
+  }
   $cli = Join-Path $payload 'PC-Otimizador-CLI.ps1'
   $ids = @($Actions | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^[a-z][a-z0-9]{0,31}$' })
   if ($ids.Count -eq 0) { $ids = @(Get-PresetIds 'safe') }

@@ -22,17 +22,16 @@ if "%UP%"=="10" (
 )
 if "%UP%"=="2" (
   echo.
-  echo   FALHA na atualizacao obrigatoria. Verifique a internet e tente de novo.
+  echo   Nao foi possivel atualizar agora. Continuando com esta versao.
   echo   Release: https://github.com/leonardolauriquer/PC-Otimizador/releases
-  pause
-  exit /b 2
+  timeout /t 4 >nul
 )
 
 :MAIN
 cls
 echo.
 echo   ============================================================
-echo        PC OTIMIZADOR PRO  v5.9.0
+echo        PC OTIMIZADOR PRO  v5.10.0
 echo   ============================================================
 echo.
 echo   Dica: 1 = mais seguro. 8 = so simula. G = tela com ajuda.

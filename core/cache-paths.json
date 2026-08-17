@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "chromiumUserData": [
+    "{LocalAppData}\\Google\\Chrome\\User Data",
+    "{LocalAppData}\\Microsoft\\Edge\\User Data",
+    "{LocalAppData}\\Microsoft\\Edge Beta\\User Data",
+    "{LocalAppData}\\BraveSoftware\\Brave-Browser\\User Data",
+    "{LocalAppData}\\Chromium\\User Data",
+    "{LocalAppData}\\Opera Software\\Opera Stable",
+    "{LocalAppData}\\Opera Software\\Opera GX Stable"
+  ],
+  "chromiumLeaves": ["Cache", "Code Cache", "GPUCache"],
+  "skipProfiles": [
+    "System Profile",
+    "Crashpad",
+    "GrShaderCache",
+    "GraphiteDawnCache",
+    "ShaderCache",
+    "BrowserMetrics",
+    "Safe Browsing",
+    "WidevineCdm"
+  ]
+}

@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Linux-Bash-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux">
   <img src="https://img.shields.io/badge/macOS-Bash-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Android-Termux-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
-  <img src="https://img.shields.io/badge/v5.9.0-Consent%20%26%20Control-0d9488?style=for-the-badge" alt="v5.9.0">
+  <img src="https://img.shields.io/badge/v5.10.0-Faster%20cleanup-0d9488?style=for-the-badge" alt="v5.10.0">
   <img src="https://img.shields.io/badge/Licença-MIT-22c55e?style=for-the-badge" alt="MIT">
 </p>
 
@@ -100,7 +100,15 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 
 ---
 
-## Novidades v5.9.0
+## Novidades v5.10.0
+
+- **Menos I/O:** estimativa de pastas com teto de tempo; a GUI não revarre o disco no motor (`-StreamProgress`).
+- **Consentimento imediato:** Recusar/Concordo abre na hora; os MB entram em segundo plano.
+- **Chrome/Edge/Brave/Opera:** limpa Cache, Code Cache e GPUCache de todos os perfis de usuário, não só `Default`.
+- **Saúde mais leve:** cartões de saúde atualizam o painel sem um lote extra; snapshot e lixo ficam em cache curto.
+- **Offline utilizável:** se a pasta local estiver íntegra, falha de atualização não fecha o app.
+
+### Incluído desde v5.9.0
 
 - **Consentimento explícito:** a GUI lista cada ação com SAFE / ATENÇÃO / RISCO e estimativa de tamanho; **Recusar** cancela e **Concordo — executar** só libera o que estiver marcado.
 - **Sem simulação na GUI:** dry-run permanece na CLI / `Executar.bat` (`8`); a interface nativa executa somente o que você autorizou.
@@ -291,8 +299,8 @@ powershell -ExecutionPolicy Bypass -File .\Compilar-EXE.ps1
 ```
 
 ```bash
-git tag v5.9.0
-git push origin v5.9.0
+git tag v5.10.0
+git push origin v5.10.0
 # Actions: testes Windows + smoke Bash → ZIP + SHA256SUMS.txt
 ```
 

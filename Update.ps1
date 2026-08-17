@@ -98,6 +98,14 @@ function Test-PackageManifest([string]$PackageRoot) {
   return $true
 }
 
+function Test-LocalInstallIntegrity {
+  param([string]$InstallRoot)
+  foreach ($relative in @('Engine.ps1','PC-Otimizador-CLI.ps1','VERSION','core\presets.json')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $InstallRoot $relative))) { return $false }
+  }
+  return $true
+}
+
 function Test-AuthenticodePolicy([string]$PackageRoot) {
   $policy = Join-Path $PackageRoot 'SIGNING-REQUIRED'
   if (-not (Test-Path -LiteralPath $policy)) { return $true }
@@ -144,6 +152,10 @@ $zipAsset = @($rel.assets | Where-Object { $_.name -eq 'PC-Otimizador-Windows.zi
 $sumAsset = @($rel.assets | Where-Object { $_.name -eq 'SHA256SUMS.txt' }) | Select-Object -First 1
 if (-not $zipAsset) {
   Write-U 'Release sem PC-Otimizador-Windows.zip.' 'Red'
+  if (Test-LocalInstallIntegrity $Root) {
+    Write-U 'Continuando com a versao local intacta.' 'Yellow'
+    exit 0
+  }
   exit 2
 }
 
@@ -288,5 +300,9 @@ try {
   exit 10
 } catch {
   Write-U ("Falha na atualizacao: {0}" -f $_.Exception.Message) 'Red'
+  if (Test-LocalInstallIntegrity $Root) {
+    Write-U 'Continuando com a versao local intacta.' 'Yellow'
+    exit 0
+  }
   exit 2
 }

@@ -265,6 +265,10 @@ namespace PCOtimizador
 
     static class ActionEstimates
     {
+        public static string PackageRoot;
+
+        static readonly string[] ChromiumSkip = new[] { "System Profile", "Crashpad", "GrShaderCache", "GraphiteDawnCache", "ShaderCache", "BrowserMetrics", "Safe Browsing", "WidevineCdm" };
+        static readonly string[] ChromiumLeaves = new[] { "Cache", "Code Cache", "GPUCache" };
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
         static extern int SHQueryRecycleBin(string root, ref ShQueryRbInfo info);
 
@@ -397,13 +401,86 @@ namespace PCOtimizador
                 case "prefetch": return new[] { Path.Combine(win, "Prefetch") };
                 case "recent": return new[] { Environment.GetFolderPath(Environment.SpecialFolder.Recent) };
                 case "gpu": return new[] { Path.Combine(local, "D3DSCache"), Path.Combine(local, @"NVIDIA\DXCache"), Path.Combine(local, @"NVIDIA\GLCache"), Path.Combine(local, @"AMD\DxCache"), Path.Combine(local, @"Intel\ShaderCache") };
-                case "browser": return new[] { Path.Combine(local, @"Google\Chrome\User Data\Default\Cache"), Path.Combine(local, @"Microsoft\Edge\User Data\Default\Cache"), Path.Combine(local, @"BraveSoftware\Brave-Browser\User Data\Default\Cache") };
                 case "apps": return new[] { Path.Combine(roaming, @"discord\Cache"), Path.Combine(local, @"Steam\htmlcache"), Path.Combine(roaming, @"Microsoft\Teams\Cache"), Path.Combine(roaming, @"Spotify\Storage") };
                 case "store": return new[] { Path.Combine(local, @"Microsoft\Windows\INetCache") };
                 case "upgrade": return new[] { Path.Combine(drive + @"\", "$Windows.~BT"), Path.Combine(drive + @"\", "$Windows.~WS"), Path.Combine(drive + @"\", "Windows.old") };
                 case "font": return new[] { Path.Combine(local, @"Microsoft\FontCache") };
+                case "browser": return ChromiumCachePaths(local);
                 default: return new string[0];
             }
+        }
+
+        static string[] ChromiumUserDataRoots(string local)
+        {
+            var list = new List<string>();
+            string jsonPath = Path.Combine(PackageRoot ?? "", "core", "cache-paths.json");
+            if (!string.IsNullOrEmpty(PackageRoot) && File.Exists(jsonPath))
+            {
+                try
+                {
+                    var json = File.ReadAllText(jsonPath);
+                    var match = Regex.Match(json, "\"chromiumUserData\"\\s*:\\s*\\[([^\\]]+)\\]", RegexOptions.Multiline);
+                    if (match.Success)
+                    {
+                        foreach (Match m in Regex.Matches(match.Groups[1].Value, "\"([^\"]+)\""))
+                        {
+                            string expanded = m.Groups[1].Value.Replace("{LocalAppData}", local).Replace("\\\\", "\\");
+                            if (!string.IsNullOrEmpty(expanded)) list.Add(expanded);
+                        }
+                    }
+                }
+                catch { }
+            }
+            if (list.Count == 0)
+            {
+                list.Add(Path.Combine(local, @"Google\Chrome\User Data"));
+                list.Add(Path.Combine(local, @"Microsoft\Edge\User Data"));
+                list.Add(Path.Combine(local, @"BraveSoftware\Brave-Browser\User Data"));
+                list.Add(Path.Combine(local, @"Opera Software\Opera Stable"));
+            }
+            return list.ToArray();
+        }
+
+        static bool IsChromiumProfile(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            foreach (var skip in ChromiumSkip)
+                if (string.Equals(name, skip, StringComparison.OrdinalIgnoreCase)) return false;
+            return name.IndexOf('\\') < 0 && name.IndexOf('/') < 0;
+        }
+
+        static string[] ChromiumCachePaths(string local)
+        {
+            var found = new List<string>();
+            foreach (var root in ChromiumUserDataRoots(local))
+            {
+                if (!Directory.Exists(root)) continue;
+                foreach (var leaf in ChromiumLeaves)
+                {
+                    string direct = Path.Combine(root, leaf);
+                    if (Directory.Exists(direct)) found.Add(direct);
+                }
+                try
+                {
+                    foreach (var dir in Directory.GetDirectories(root))
+                    {
+                        string name = Path.GetFileName(dir);
+                        if (!IsChromiumProfile(name)) continue;
+                        if (!File.Exists(Path.Combine(dir, "Preferences")) && !Directory.Exists(Path.Combine(dir, "Cache"))) continue;
+                        foreach (var leaf in ChromiumLeaves) found.Add(Path.Combine(dir, leaf));
+                    }
+                }
+                catch { }
+            }
+            string firefox = Path.Combine(local, @"Mozilla\Firefox\Profiles");
+            try
+            {
+                if (Directory.Exists(firefox))
+                    foreach (var dir in Directory.GetDirectories(firefox))
+                        found.Add(Path.Combine(dir, "cache2"));
+            }
+            catch { }
+            return found.ToArray();
         }
 
         static long FolderBytes(string path, int budgetMs)
@@ -893,6 +970,45 @@ namespace PCOtimizador
             AcceptButton = _run;
             ClientSize = new Size(688, Math.Max(580, y + 96));
             UpdateRunEnabled();
+            string[] measureIds = ids;
+            Shown += (s, e) => BeginMeasure(measureIds);
+        }
+
+        void BeginMeasure(string[] ids)
+        {
+            _total.Text = _english ? "Measuring selected sizes…" : "Medindo tamanhos dos marcados…";
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                Dictionary<string, double> measured;
+                try { measured = ActionEstimates.Measure(ids); }
+                catch { measured = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase); }
+                if (IsDisposed) return;
+                try
+                {
+                    BeginInvoke(new Action(delegate
+                    {
+                        if (IsDisposed) return;
+                        ApplyEstimates(measured);
+                    }));
+                }
+                catch { }
+            });
+        }
+
+        void ApplyEstimates(Dictionary<string, double> measured)
+        {
+            for (int i = 0; i < _list.Items.Count; i++)
+            {
+                var row = (ActionRow)_list.Items[i];
+                double mb;
+                if (measured == null || !measured.TryGetValue(row.Spec.Id, out mb))
+                    mb = ActionEstimates.IsSetting(row.Spec.Id) ? 0 : -1;
+                bool on = _list.GetItemChecked(i);
+                row.SetMeasured(mb, _english);
+                _list.Items[i] = row;
+                _list.SetItemChecked(i, on);
+            }
+            UpdateRunEnabled();
         }
 
         void UpdateRunEnabled()
@@ -915,9 +1031,15 @@ namespace PCOtimizador
         sealed class ActionRow
         {
             public readonly ActionSpec Spec;
-            public readonly double Mb;
-            readonly string _text;
+            public double Mb;
+            string _text;
             public ActionRow(ActionSpec spec, double mb, string text) { Spec = spec; Mb = mb; _text = text; }
+            public void SetMeasured(double mb, bool english)
+            {
+                Mb = mb;
+                string badge = Spec.IsHigh ? (english ? "RISK" : "RISCO") : Spec.IsMedium ? (english ? "CAUTION" : "ATENÇÃO") : (english ? "SAFE" : "SEGURO");
+                _text = Spec.Label(english) + "   [" + badge + "]   " + ActionEstimates.FormatHint(mb, ActionEstimates.IsSetting(Spec.Id), english);
+            }
             public override string ToString() { return _text; }
         }
     }
@@ -1776,6 +1898,7 @@ namespace PCOtimizador
         public MainForm()
         {
             _root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\', '/');
+            ActionEstimates.PackageRoot = _root;
             _cancelFile = Path.Combine(Path.GetTempPath(), "pc-otimizador-cancel.flag");
             _logsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PC-Otimizador-Logs");
 
@@ -2165,7 +2288,13 @@ namespace PCOtimizador
                         else if (!string.IsNullOrWhiteSpace(line)) LogLine(line.Trim());
                         Application.DoEvents();
                     }
-                    if (!p.WaitForExit(300000)) { LogLine(Local(_english, "Verificação de atualização excedeu o tempo limite.", "Update check timed out.")); _taskLabel.Text = T("task.update.timeout"); return; }
+                    if (!p.WaitForExit(90000))
+                    {
+                        try { p.Kill(); } catch { }
+                        LogLine(Local(_english, "Verificação de atualização excedeu o tempo limite. Continuando com esta versão.", "Update check timed out. Continuing with this version."));
+                        _taskLabel.Text = T("task.update.timeout");
+                        return;
+                    }
                     int code = p.ExitCode;
                     if (code == 10)
                     {
@@ -2174,8 +2303,9 @@ namespace PCOtimizador
                     }
                     if (code == 2)
                     {
-                        MessageBox.Show(Local(_english, "Falha na atualização obrigatória.\nVerifique a internet e tente de novo.\n\nhttps://github.com/leonardolauriquer/PC-Otimizador/releases", "Required update failed.\nCheck your connection and try again.\n\nhttps://github.com/leonardolauriquer/PC-Otimizador/releases"), Local(_english, "Atualização", "Update"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        Application.Exit(); return;
+                        MessageBox.Show(Local(_english, "Não foi possível aplicar a atualização agora.\nA versão atual continua utilizável.\n\nhttps://github.com/leonardolauriquer/PC-Otimizador/releases", "The update could not be applied now.\nThis version remains usable.\n\nhttps://github.com/leonardolauriquer/PC-Otimizador/releases"), Local(_english, "Atualização", "Update"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        _taskLabel.Text = T("task.ready");
+                        return;
                     }
                     _taskLabel.Text = T("task.ready");
                 }
@@ -2350,7 +2480,7 @@ namespace PCOtimizador
             BuildFeaturePage("desempenho", "page.desempenho.title", "page.desempenho.desc", new[]
             {
                 new FeatureSpec { Icon = "gauge", TitleKey = "card.gamer.title", SubKey = "card.gamer.sub", ButtonKey = "button.runGamer", Accent = Danger, Action = () => RunPreset("gamer", true) },
-                new FeatureSpec { Icon = "heart", TitleKey = "card.health.title", SubKey = "card.health.sub", ButtonKey = "button.health", Accent = Accent, Action = () => RunCli("-Mode health -AutoYes") },
+                new FeatureSpec { Icon = "heart", TitleKey = "card.health.title", SubKey = "card.health.sub", ButtonKey = "button.health", Accent = Accent, Action = () => { ShowPage("inicio"); RefreshHealthAsync(); } },
                 new FeatureSpec { Icon = "laptop", TitleKey = "card.notebook.title", SubKey = "card.notebook.sub", ButtonKey = "button.runSafe", Accent = Ok, Action = () => RunPreset("notebook", false) }
             });
         }
@@ -2361,7 +2491,7 @@ namespace PCOtimizador
             {
                 new FeatureSpec { Icon = "globe", TitleKey = "card.net.title", SubKey = "card.net.sub", ButtonKey = "button.runNet", Accent = Warn, Action = () => RunPreset("net", true) },
                 new FeatureSpec { Icon = "network", TitleKey = "card.scan.title", SubKey = "card.scan.sub", ButtonKey = "button.scan", Accent = Accent2, Action = () => RunCli("-Mode scan -AutoYes") },
-                new FeatureSpec { Icon = "heart", TitleKey = "card.health.title", SubKey = "card.health.sub", ButtonKey = "button.health", Accent = Accent, Action = () => RunCli("-Mode health -AutoYes") }
+                new FeatureSpec { Icon = "heart", TitleKey = "card.health.title", SubKey = "card.health.sub", ButtonKey = "button.health", Accent = Accent, Action = () => { ShowPage("inicio"); RefreshHealthAsync(); } }
             });
         }
 
@@ -2445,7 +2575,7 @@ namespace PCOtimizador
             page.Controls.Add(Register(new Label { Font = new Font("Segoe UI Semibold", 22f), ForeColor = TextMain, Location = new Point(10, 18), AutoSize = true }, "page.ferramentas.title"));
             page.Controls.Add(Register(new Label { ForeColor = Muted, Location = new Point(12, 58), AutoSize = true }, "page.ferramentas.desc"));
             _toolsFlow = new FlowLayoutPanel { BackColor = Color.Transparent, AutoScroll = true, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(4), Margin = new Padding(0) };
-            _toolsFlow.Controls.Add(ToolCard("card.health.title", "card.health.sub", "shield", () => RunCli("-Mode health -AutoYes")));
+            _toolsFlow.Controls.Add(ToolCard("card.health.title", "card.health.sub", "shield", () => { ShowPage("inicio"); RefreshHealthAsync(); }));
             _toolsFlow.Controls.Add(ToolCard("card.scan.title", "card.scan.sub", "drive", () => RunCli("-Mode scan -AutoYes")));
             _toolsFlow.Controls.Add(ToolCard("card.schedule.title", "card.schedule.sub", "clock", () => ScheduleWeekly()));
             _toolsFlow.Controls.Add(ToolCard("card.undo.title", "card.undo.sub", "shield", UndoTweaks));
@@ -2875,12 +3005,7 @@ namespace PCOtimizador
             else if (name == "full") title = _english ? "FULL CLEANUP" : "LIMPEZA COMPLETA";
 
             var ids = ActionCatalog.IdsFor(name, _root);
-            Dictionary<string, double> estimates;
-            Cursor = Cursors.WaitCursor;
-            try { estimates = ActionEstimates.Measure(ids); }
-            catch { estimates = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase); }
-            finally { Cursor = Cursors.Default; }
-            using (var dlg = new ConsentDialog(name, title, explain, highRisk, _english, ids, estimates, UserPrefs.LoadSelection(name)))
+            using (var dlg = new ConsentDialog(name, title, explain, highRisk, _english, ids, null, UserPrefs.LoadSelection(name)))
             {
                 dlg.ShowDialog(this);
                 if (dlg.DialogResult != DialogResult.OK || dlg.SelectedIds.Count == 0) return;
