@@ -9,6 +9,12 @@ $script:CancelFile = Join-Path $env:TEMP 'pc-otimizador-cancel.flag'
 $script:Whitelist = New-Object System.Collections.Generic.List[string]
 $script:ProgressCallback = $null
 $script:LogBox = $null
+$script:ExecutionMutex = $null
+$script:RollbackSteps = $null
+$script:CurrentActionId = $null
+$script:ActionResults = $null
+$script:LastExecutionMethod = 1
+$script:CurrentActionWarnings = $null
 function Test-IsAdmin {
   $id = [Security.Principal.WindowsIdentity]::GetCurrent()
   $p = New-Object Security.Principal.WindowsPrincipal($id)
@@ -141,7 +147,9 @@ function Remove-PathSafe {
       Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
     }
   } catch {}
-  return [math]::Max(0, $before - (Get-FolderSizeMB $Path))
+  $after = Get-FolderSizeMB $Path
+  if ($before -gt 0 -and $after -gt 0.1) { Add-ActionWarning ("Limpeza parcial: {0} MB permaneceram em {1} (arquivos podem estar em uso)." -f $after, $Path) }
+  return [math]::Max(0, $before - $after)
 }
 
 function Write-Log {
@@ -177,11 +185,16 @@ function Invoke-ExternalChecked {
     [Parameter(Mandatory=$true)][string]$FilePath,
     [string[]]$ArgumentList = @(),
     [int[]]$SuccessExitCodes = @(0),
-    [string]$Label = $FilePath
+    [string]$Label = $FilePath,
+    [ValidateRange(1,7200)][int]$TimeoutSec = 600
   )
   $cmd = Get-Command $FilePath -ErrorAction SilentlyContinue
   if (-not $cmd) { throw ("{0} indisponivel neste Windows" -f $Label) }
-  $p = Start-Process -FilePath $cmd.Source -ArgumentList $ArgumentList -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
+  $p = Start-Process -FilePath $cmd.Source -ArgumentList $ArgumentList -PassThru -WindowStyle Hidden -ErrorAction Stop
+  if (-not $p.WaitForExit($TimeoutSec * 1000)) {
+    try { $p.Kill() } catch {}
+    throw ("{0} excedeu o limite de {1}s e foi encerrado" -f $Label, $TimeoutSec)
+  }
   if ($SuccessExitCodes -notcontains [int]$p.ExitCode) { throw ("{0} retornou codigo {1}" -f $Label, $p.ExitCode) }
   Write-Log ("{0}: concluido (codigo {1})" -f $Label, $p.ExitCode)
   return $p.ExitCode
@@ -194,6 +207,7 @@ function Invoke-WithFallback {
     try {
       if ($i -gt 0) { Write-Log ("{0}: tentando metodo alternativo {1}/{2}" -f $Name, ($i + 1), $Attempts.Count) 'WARN' }
       $value = & $Attempts[$i]
+      $script:LastExecutionMethod = $i + 1
       Write-Log ("{0}: verificado pelo metodo {1}" -f $Name, ($i + 1))
       return $value
     } catch {
@@ -202,6 +216,72 @@ function Invoke-WithFallback {
     }
   }
   throw ("{0}: nenhum metodo funcionou ({1})" -f $Name, ($errors -join ' | '))
+}
+
+function Enter-ExecutionLock {
+  param([string]$Name = 'Global\PCOtimizadorPro.Engine')
+  $created = $false
+  $script:ExecutionMutex = New-Object Threading.Mutex($false, $Name, [ref]$created)
+  try { $acquired = $script:ExecutionMutex.WaitOne(0, $false) } catch { $acquired = $false }
+  if (-not $acquired) {
+    try { $script:ExecutionMutex.Dispose() } catch {}
+    $script:ExecutionMutex = $null
+    throw 'Outra otimizacao ja esta em execucao. Aguarde a conclusao antes de iniciar uma nova.'
+  }
+  return $true
+}
+
+function Exit-ExecutionLock {
+  if ($script:ExecutionMutex) {
+    try { $script:ExecutionMutex.ReleaseMutex() } catch {}
+    try { $script:ExecutionMutex.Dispose() } catch {}
+    $script:ExecutionMutex = $null
+  }
+}
+
+function Start-ActionTransaction {
+  param([string]$ActionId)
+  $script:CurrentActionId = $ActionId
+  $script:RollbackSteps = New-Object Collections.Generic.List[object]
+  $script:CurrentActionWarnings = New-Object Collections.Generic.List[string]
+}
+
+function Add-ActionWarning {
+  param([string]$Message)
+  if ($null -ne $script:CurrentActionWarnings) { $script:CurrentActionWarnings.Add($Message) }
+  Write-Log $Message 'WARN'
+}
+
+function Add-RollbackStep {
+  param([string]$Description, [scriptblock]$Action)
+  if ($null -eq $script:RollbackSteps) { return }
+  $script:RollbackSteps.Add([pscustomobject]@{ Description = $Description; Action = $Action })
+}
+
+function Complete-ActionTransaction {
+  $script:RollbackSteps = $null
+  $script:CurrentActionId = $null
+  $script:CurrentActionWarnings = $null
+}
+
+function Undo-ActionTransaction {
+  $steps = @($script:RollbackSteps | ForEach-Object { $_ })
+  [array]::Reverse($steps)
+  foreach ($step in $steps) {
+    try { & $step.Action; Write-Log ("Rollback: {0}" -f $step.Description) }
+    catch { Write-Log ("Rollback falhou ({0}): {1}" -f $step.Description, $_.Exception.Message) 'ERROR' }
+  }
+  Complete-ActionTransaction
+}
+
+function Write-ActionResult {
+  param([string]$Id, [string]$Name, [ValidateSet('SUCCESS','PARTIAL','FAILED','SKIPPED','BLOCKED')][string]$Status, [string]$Message = '')
+  $safeMessage = ($Message -replace '[\r\n|]+', ' ').Trim()
+  $item = [pscustomobject]@{ Id = $Id; Name = $Name; Status = $Status; Method = [int]$script:LastExecutionMethod; Message = $safeMessage }
+  if ($null -ne $script:ActionResults) { $script:ActionResults.Add($item) }
+  Write-Log ("ACTION {0} | {1} | metodo={2} | {3}" -f $Id, $Status, $item.Method, $safeMessage) $(if ($Status -eq 'FAILED') { 'ERROR' } elseif ($Status -in @('PARTIAL','SKIPPED','BLOCKED')) { 'WARN' } else { 'INFO' })
+  try { [Console]::Out.WriteLine(('##ACTION##|{0}|{1}|{2}|{3}' -f $Id, $Status, $item.Method, $safeMessage)) } catch {}
+  return $item
 }
 
 function Get-CompatibilityProfile {
@@ -215,6 +295,59 @@ function Get-CompatibilityProfile {
     HasStorage = (Test-CommandAvailable 'Optimize-Volume'); HasDnsCmdlet = (Test-CommandAvailable 'Clear-DnsClientCache')
     HasDism = (Test-CommandAvailable 'dism.exe'); HasSfc = (Test-CommandAvailable 'sfc.exe')
   }
+}
+
+function Get-AppSettingsPath {
+  $base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [Environment]::GetFolderPath('LocalApplicationData') }
+  if (-not $base) { $base = Join-Path $env:TEMP 'PC-Otimizador-User' }
+  $dir = Join-Path $base 'PC-Otimizador'
+  if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+  return Join-Path $dir 'settings.json'
+}
+
+function Get-AppSettings {
+  $path = Get-AppSettingsPath
+  if (Test-Path -LiteralPath $path) {
+    try { return Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop } catch {}
+  }
+  return [pscustomobject]@{ TelemetryConsent = $false; TelemetryEndpoint = '' }
+}
+
+function Set-TelemetrySettings {
+  param([bool]$Consent, [string]$Endpoint = '')
+  if ($Endpoint -and $Endpoint -notmatch '^https://') { throw 'O endpoint de telemetria deve usar HTTPS.' }
+  $settings = [ordered]@{ TelemetryConsent = $Consent; TelemetryEndpoint = $Endpoint; UpdatedAtUtc = [DateTime]::UtcNow.ToString('o') }
+  $settingsPath = Get-AppSettingsPath
+  $settings | ConvertTo-Json | Set-Content -LiteralPath $settingsPath -Encoding UTF8
+  if (-not $Consent) {
+    $queue = Join-Path (Split-Path $settingsPath -Parent) 'telemetry.jsonl'
+    if (Test-Path -LiteralPath $queue) { Remove-Item -LiteralPath $queue -Force -ErrorAction SilentlyContinue }
+  }
+  return [pscustomobject]$settings
+}
+
+function Submit-TelemetryEvent {
+  param([string]$ActionId, [string]$Status, [int]$DurationMs, [string]$FailureCategory = '')
+  $settings = Get-AppSettings
+  $consentProp = $settings.PSObject.Properties['TelemetryConsent']
+  if (-not $consentProp -or -not [bool]$consentProp.Value) { return $false }
+  $versionPath = Join-Path $PSScriptRoot 'VERSION'
+  $appVersion = if (Test-Path -LiteralPath $versionPath) { (Get-Content -LiteralPath $versionPath -Raw).Trim() } else { 'unknown' }
+  $compat = Get-CompatibilityProfile
+  $payload = [ordered]@{
+    schema = 1; timestampUtc = [DateTime]::UtcNow.ToString('o'); appVersion = $appVersion
+    osVersion = $compat.Version; osBuild = $compat.Build; powershell = $compat.PowerShell
+    action = $ActionId; status = $Status; durationMs = $DurationMs; failureCategory = $FailureCategory
+  }
+  $queue = Join-Path (Split-Path (Get-AppSettingsPath) -Parent) 'telemetry.jsonl'
+  ($payload | ConvertTo-Json -Compress) | Add-Content -LiteralPath $queue -Encoding UTF8
+  $endpointProp = $settings.PSObject.Properties['TelemetryEndpoint']
+  if ($endpointProp -and $endpointProp.Value) {
+    try {
+      Invoke-RestMethod -Uri ([string]$endpointProp.Value) -Method Post -ContentType 'application/json' -Body ($payload | ConvertTo-Json -Compress) -TimeoutSec 5 | Out-Null
+    } catch { Write-Log ("Telemetria nao enviada; evento mantido localmente: {0}" -f $_.Exception.Message) 'WARN'; return $false }
+  }
+  return $true
 }
 
 function Get-SystemSnapshot {
@@ -256,6 +389,19 @@ function Get-SystemSnapshot {
 
 function Set-RegDword {
   param([string]$Path, [string]$Name, [int]$Value)
+  $pathExisted = Test-Path $Path
+  $existed = $false; $oldValue = $null
+  if ($pathExisted) {
+    try { $oldValue = (Get-ItemProperty -Path $Path -Name $Name -ErrorAction Stop).$Name; $existed = $true } catch {}
+  }
+  $rollbackPath = $Path; $rollbackName = $Name; $rollbackExisted = $existed; $rollbackValue = $oldValue; $rollbackPathExisted = $pathExisted
+  Add-RollbackStep ("Registro {0}\{1}" -f $Path, $Name) ({
+    if ($rollbackExisted) { Set-ItemProperty -Path $rollbackPath -Name $rollbackName -Value $rollbackValue -Type DWord -Force -ErrorAction Stop }
+    else {
+      Remove-ItemProperty -Path $rollbackPath -Name $rollbackName -Force -ErrorAction SilentlyContinue
+      if (-not $rollbackPathExisted -and (Test-Path $rollbackPath)) { Remove-Item -Path $rollbackPath -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+  }.GetNewClosure())
   if (-not (Test-Path $Path)) { New-Item -Path $Path -Force -ErrorAction Stop | Out-Null }
   Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type DWord -Force -ErrorAction Stop
   $actual = (Get-ItemProperty -Path $Path -Name $Name -ErrorAction Stop).$Name
@@ -296,11 +442,12 @@ function Invoke-CleanUpdateCache {
   $wuWasRunning = $wu -and $wu.Status -eq 'Running'
   $bitsWasRunning = $bits -and $bits.Status -eq 'Running'
   try {
-    Stop-Service wuauserv, bits -Force -ErrorAction SilentlyContinue
+    if ($wuWasRunning) { Stop-Service wuauserv -Force -ErrorAction Stop; (Get-Service wuauserv).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30)) }
+    if ($bitsWasRunning) { Stop-Service bits -Force -ErrorAction Stop; (Get-Service bits).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30)) }
     $freed = [double](Remove-PathSafe (Join-Path (Get-WindowsRoot) 'SoftwareDistribution\Download') -Recurse)
   } finally {
-    if ($bitsWasRunning) { Start-Service bits -ErrorAction SilentlyContinue }
-    if ($wuWasRunning) { Start-Service wuauserv -ErrorAction SilentlyContinue }
+    if ($bitsWasRunning) { Start-Service bits -ErrorAction Stop; (Get-Service bits).WaitForStatus('Running',[TimeSpan]::FromSeconds(30)) }
+    if ($wuWasRunning) { Start-Service wuauserv -ErrorAction Stop; (Get-Service wuauserv).WaitForStatus('Running',[TimeSpan]::FromSeconds(30)) }
   }
   Write-Log "Update cache: ~$freed MB"; return $freed
 }
@@ -397,10 +544,11 @@ function Invoke-CleanFontCache {
   $svc = Get-Service FontCache -ErrorAction SilentlyContinue
   $wasRunning = $svc -and $svc.Status -eq 'Running'
   try {
-    Stop-Service FontCache -Force -EA SilentlyContinue
-    Remove-Item (Join-Path (Get-WindowsRoot) 'ServiceProfiles\LocalService\AppData\Local\FontCache\*') -Recurse -Force -EA SilentlyContinue
-  } catch { Write-Log ("FontCache: {0}" -f $_) 'WARN' }
-  finally { if ($wasRunning) { Start-Service FontCache -EA SilentlyContinue } }
+    if ($wasRunning) { Stop-Service FontCache -Force -ErrorAction Stop; (Get-Service FontCache).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30)) }
+    $null = Remove-PathSafe (Join-Path (Get-WindowsRoot) 'ServiceProfiles\LocalService\AppData\Local\FontCache') -Recurse
+  } finally {
+    if ($wasRunning) { Start-Service FontCache -ErrorAction Stop; (Get-Service FontCache).WaitForStatus('Running',[TimeSpan]::FromSeconds(30)) }
+  }
   return 0
 }
 
@@ -445,7 +593,7 @@ function Invoke-CleanStoreCache {
     $f += [double](Remove-PathSafe (Join-Path $_.FullName 'LocalCache') -Recurse)
   }
   $f += [double](Remove-PathSafe "$env:LOCALAPPDATA\Microsoft\Windows\INetCache" -Recurse)
-  try { Start-Process wsreset.exe -WindowStyle Hidden -EA SilentlyContinue } catch {}
+  $null = Invoke-ExternalChecked 'wsreset.exe' @() @(0) 'Microsoft Store reset' 300
   Write-Log "Store: ~$f MB"; return $f
 }
 
@@ -526,6 +674,11 @@ function Invoke-OptimizeDrives {
 function Invoke-HighPerformance {
   Write-Log 'Plano Alto Desempenho...'
   $script:ActivatedHighPerformanceGuid = $null
+  $previousScheme = (& powercfg.exe /getactivescheme 2>&1 | Out-String)
+  if ($previousScheme -match '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}') {
+    $previousGuid = $matches[0]
+    Add-RollbackStep 'Plano de energia anterior' ({ $null = Invoke-ExternalChecked 'powercfg.exe' @('/setactive',$previousGuid) @(0) 'Rollback powercfg' }.GetNewClosure())
+  }
   $guid = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
   Invoke-WithFallback 'Plano Alto Desempenho' @(
     { $null = Invoke-ExternalChecked 'powercfg.exe' @('/setactive',$guid) @(0) 'powercfg'; return 0 },
@@ -545,6 +698,11 @@ function Invoke-HighPerformance {
 
 function Invoke-BalancedPower {
   Write-Log 'Plano Equilibrado...'
+  $previousScheme = (& powercfg.exe /getactivescheme 2>&1 | Out-String)
+  if ($previousScheme -match '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}') {
+    $previousGuid = $matches[0]
+    Add-RollbackStep 'Plano de energia anterior' ({ $null = Invoke-ExternalChecked 'powercfg.exe' @('/setactive',$previousGuid) @(0) 'Rollback powercfg' }.GetNewClosure())
+  }
   $guid = '381b4222-f694-41f0-9685-ff5bb260df2e'
   $null = Invoke-ExternalChecked 'powercfg.exe' @('/setactive',$guid) @(0) 'Plano Equilibrado'
   $active = (& powercfg.exe /getactivescheme 2>&1 | Out-String)
@@ -651,7 +809,7 @@ function Invoke-NetOptimizations {
   $null = Invoke-ExternalChecked 'netsh.exe' @('int','tcp','set','global','autotuninglevel=normal') @(0) 'TCP autotuning'
   foreach ($setting in @('chimney=disabled','dca=enabled','netdma=enabled','ecncapability=enabled','timestamps=disabled')) {
     try { $null = Invoke-ExternalChecked 'netsh.exe' @('int','tcp','set','global',$setting) @(0) ("TCP {0}" -f $setting) }
-    catch { Write-Log ("Opcao TCP nao suportada nesta versao ({0}): {1}" -f $setting, $_.Exception.Message) 'WARN' }
+    catch { Add-ActionWarning ("Opcao TCP nao suportada nesta versao ({0}): {1}" -f $setting, $_.Exception.Message) }
   }
   # Network Throttling Index (multimedia)
   Set-RegDword 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' 'NetworkThrottlingIndex' -1
@@ -659,26 +817,55 @@ function Invoke-NetOptimizations {
   Write-Log 'TCP/multimedia tweaks OK'; return 0
 }
 
+function Set-DnsServersResilient {
+  param([string[]]$Servers, [string]$Label)
+  Invoke-WithFallback $Label @(
+    {
+      if (-not (Test-CommandAvailable 'Get-NetAdapter') -or -not (Test-CommandAvailable 'Set-DnsClientServerAddress')) { throw 'cmdlets DNS modernos ausentes' }
+      $adapters = @(Get-NetAdapter -ErrorAction Stop | Where-Object Status -eq 'Up')
+      if ($adapters.Count -eq 0) { throw 'nenhum adaptador ativo' }
+      foreach ($adapter in $adapters) {
+        $index = [int]$adapter.ifIndex
+        $old = @(Get-DnsClientServerAddress -InterfaceIndex $index -AddressFamily IPv4 -ErrorAction Stop | ForEach-Object ServerAddresses)
+        Add-RollbackStep ("DNS do adaptador {0}" -f $adapter.Name) ({
+          if ($old.Count -gt 0) { Set-DnsClientServerAddress -InterfaceIndex $index -ServerAddresses $old -ErrorAction Stop }
+          else { Set-DnsClientServerAddress -InterfaceIndex $index -ResetServerAddresses -ErrorAction Stop }
+        }.GetNewClosure())
+        Set-DnsClientServerAddress -InterfaceIndex $index -ServerAddresses $Servers -ErrorAction Stop
+        $actual = @(Get-DnsClientServerAddress -InterfaceIndex $index -AddressFamily IPv4 -ErrorAction Stop | ForEach-Object ServerAddresses)
+        if ($actual -notcontains $Servers[0]) { throw ("adaptador {0} nao confirmou DNS" -f $adapter.Name) }
+        Write-Log ("  {0} -> {1}" -f $adapter.Name, ($Servers -join ', '))
+      }
+      return $adapters.Count
+    },
+    {
+      if (-not (Test-CommandAvailable 'Get-WmiObject')) { throw 'WMI DNS indisponivel' }
+      $configs = @(Get-WmiObject Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True' -ErrorAction Stop)
+      if ($configs.Count -eq 0) { throw 'nenhum adaptador IP ativo via WMI' }
+      foreach ($config in $configs) {
+        $old = @($config.DNSServerSearchOrder); $wmiIndex = [uint32]$config.Index
+        Add-RollbackStep ("DNS WMI do adaptador {0}" -f $wmiIndex) ({
+          $target = Get-WmiObject Win32_NetworkAdapterConfiguration -Filter ("Index={0}" -f $wmiIndex) -ErrorAction Stop
+          $result = $target.SetDNSServerSearchOrder($(if ($old.Count) { [string[]]$old } else { $null }))
+          if ([int]$result.ReturnValue -notin @(0,1)) { throw ("WMI rollback retornou {0}" -f $result.ReturnValue) }
+        }.GetNewClosure())
+        $result = $config.SetDNSServerSearchOrder([string[]]$Servers)
+        if ([int]$result.ReturnValue -notin @(0,1)) { throw ("WMI DNS retornou {0}" -f $result.ReturnValue) }
+      }
+      return $configs.Count
+    }
+  ) | Out-Null
+  return 0
+}
+
 function Invoke-DnsCloudflare {
   Write-Log 'DNS Cloudflare 1.1.1.1 nas placas ativas...'
-  Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object {
-    try {
-      Set-DnsClientServerAddress -InterfaceIndex $_.ifIndex -ServerAddresses @('1.1.1.1', '1.0.0.1') -EA Stop
-      Write-Log "  $($_.Name) -> 1.1.1.1"
-    } catch { Write-Log "  $($_.Name): $_" 'WARN' }
-  }
-  return 0
+  return Set-DnsServersResilient -Servers @('1.1.1.1','1.0.0.1') -Label 'DNS Cloudflare'
 }
 
 function Invoke-DnsGoogle {
   Write-Log 'DNS Google 8.8.8.8 nas placas ativas...'
-  Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object {
-    try {
-      Set-DnsClientServerAddress -InterfaceIndex $_.ifIndex -ServerAddresses @('8.8.8.8', '8.8.4.4') -EA Stop
-      Write-Log "  $($_.Name) -> 8.8.8.8"
-    } catch { Write-Log "  $($_.Name): $_" 'WARN' }
-  }
-  return 0
+  return Set-DnsServersResilient -Servers @('8.8.8.8','8.8.4.4') -Label 'DNS Google'
 }
 
 function Invoke-DisableNagle {
@@ -971,6 +1158,9 @@ function Invoke-OptimizationBatch {
     [switch]$EstimateOnly,
     [switch]$AllowHighRisk
   )
+  $null = Enter-ExecutionLock
+  $script:ActionResults = New-Object Collections.Generic.List[object]
+  try {
   Reset-CancelFlag
   Import-Whitelist
   $script:DryRun = [bool]$DryRun
@@ -997,11 +1187,16 @@ function Invoke-OptimizationBatch {
     $blockedMsg = "Bloqueado: exige confirmacao de alto risco: {0}" -f ($highRisk -join ', ')
     Write-Log $blockedMsg 'ERROR'
     $path = Complete-SessionLog -Summary $blockedMsg
-    try { [Console]::Out.WriteLine(('##DONE##|BLOCKED|{0}' -f ($highRisk -join ','))) } catch {}
+    foreach ($blockedId in $highRisk) { $script:LastExecutionMethod = 0; $null = Write-ActionResult $blockedId $blockedId 'BLOCKED' 'Confirmacao de alto risco ausente.' }
+    try {
+      [Console]::Out.WriteLine(('##SUMMARY##|SUCCESS=0|PARTIAL=0|SKIPPED=0|FAILED=0|TOTAL={0}' -f $script:ActionResults.Count))
+      [Console]::Out.WriteLine(('##DONE##|BLOCKED|{0}' -f ($highRisk -join ',')))
+    } catch {}
+    Exit-ExecutionLock
     return [pscustomobject]@{
       FreedMB = 0; DeltaGB = 0; Log = $path; EstimatedMB = $est
       Before = $before; After = $before; Cancelled = $false; Blocked = $true
-      Failed = $false; Health = (Get-HealthScore)
+      Failed = $false; Health = (Get-HealthScore); ActionResults = @($script:ActionResults | ForEach-Object { $_ })
     }
   }
   if ($EstimateOnly -or $DryRun) {
@@ -1015,14 +1210,20 @@ function Invoke-OptimizationBatch {
         Write-Log ("[DRY-RUN] Executaria: {0}" -f $n)
       }
     }
+    foreach ($plannedId in $Ids) { $script:LastExecutionMethod = 0; $null = Write-ActionResult $plannedId $plannedId 'SKIPPED' $(if ($DryRun) { 'Simulacao: nenhuma alteracao aplicada.' } else { 'Somente estimativa.' }) }
+    $skippedCount = @($script:ActionResults | Where-Object Status -eq 'SKIPPED').Count
     $path = Complete-SessionLog -Summary ("Estimativa total: ~{0} MB" -f $est)
     $after = Get-SystemSnapshot
-    try { [Console]::Out.WriteLine(('##RESULT##|AFTER|{0}|{1}|{2}|{3}|{4}|{5}|0' -f $after.DiskFree, $after.DiskTot, $after.RamUsed, $after.RamTot, $est, $path)) } catch {}
-    try { [Console]::Out.WriteLine(('##DONE##|{0}' -f $(if ($script:CancelRequested) { 'CANCELLED' } elseif ($DryRun) { 'DRYRUN' } else { 'ESTIMATE' }))) } catch {}
+    try {
+      [Console]::Out.WriteLine(('##RESULT##|AFTER|{0}|{1}|{2}|{3}|{4}|{5}|0' -f $after.DiskFree, $after.DiskTot, $after.RamUsed, $after.RamTot, $est, $path))
+      [Console]::Out.WriteLine(('##SUMMARY##|SUCCESS=0|PARTIAL=0|SKIPPED={0}|FAILED=0|TOTAL={1}' -f $skippedCount, $script:ActionResults.Count))
+      [Console]::Out.WriteLine(('##DONE##|{0}' -f $(if ($script:CancelRequested) { 'CANCELLED' } elseif ($DryRun) { 'DRYRUN' } else { 'ESTIMATE' })))
+    } catch {}
+    Exit-ExecutionLock
     return [pscustomobject]@{
       FreedMB = 0; DeltaGB = 0; Log = $path; EstimatedMB = $est
       Before = $before; After = $after; Cancelled = [bool]$script:CancelRequested
-      Blocked = $false; Failed = $false; Health = (Get-HealthScore)
+      Blocked = $false; Failed = $false; Health = (Get-HealthScore); ActionResults = @($script:ActionResults | ForEach-Object { $_ })
     }
   }
 
@@ -1032,17 +1233,36 @@ function Invoke-OptimizationBatch {
   $i = 0
   $cancelled = $false
   $failed = $false
+  Save-TweakSnapshot -Ids $order
   foreach ($id in $order) {
     $i++
     if (Test-CancelRequested) { $cancelled = $true; Write-Log (Get-T 'cancelled') 'WARN'; break }
-    if (-not $Actions.ContainsKey($id)) { continue }
+    if (-not $Actions.ContainsKey($id)) { $null = Write-ActionResult $id $id 'SKIPPED' 'Acao nao existe nesta versao.'; continue }
     $o = $Actions[$id]
     Write-ProgressLine -Current $i -Total $order.Count -Name $o.Nome
     Write-Log (">> [{0}/{1}] {2}" -f $i, $order.Count, $o.Nome)
+    Start-ActionTransaction $id
+    $script:LastExecutionMethod = 1
+    $actionTimer = [Diagnostics.Stopwatch]::StartNew()
     try {
       $f = & $o.Act
       if ($f) { $freed += [double]$f }
-    } catch { $failed = $true; Write-Log "Erro $id : $_" 'ERROR' }
+      $warnings = @($script:CurrentActionWarnings | ForEach-Object { $_ })
+      Complete-ActionTransaction
+      $actionStatus = if ($warnings.Count -gt 0) { 'PARTIAL' } else { 'SUCCESS' }
+      $actionMessage = if ($warnings.Count -gt 0) { $warnings -join '; ' } else { 'Pos-condicoes confirmadas.' }
+      $null = Write-ActionResult $id $o.Nome $actionStatus $actionMessage
+      $actionTimer.Stop(); $null = Submit-TelemetryEvent $id $actionStatus ([int]$actionTimer.ElapsedMilliseconds)
+    } catch {
+      $failed = $true
+      $errorMessage = $_.Exception.Message
+      Write-Log "Erro $id : $errorMessage" 'ERROR'
+      Undo-ActionTransaction
+      $contractStatus = if ($errorMessage -match 'indisponivel|ausente|nao suport|nenhum adaptador') { 'SKIPPED' } else { 'FAILED' }
+      $null = Write-ActionResult $id $o.Nome $contractStatus $errorMessage
+      $actionTimer.Stop(); $failureCategory = if ($errorMessage -match 'permiss|acesso|admin') { 'permission' } elseif ($errorMessage -match 'indisponivel|ausente|suport') { 'unsupported' } elseif ($errorMessage -match 'limite|tempo|timeout') { 'timeout' } else { 'execution' }
+      $null = Submit-TelemetryEvent $id $contractStatus ([int]$actionTimer.ElapsedMilliseconds) $failureCategory
+    }
   }
   $after = Get-SystemSnapshot
   $delta = [math]::Round($after.DiskFree - $before.DiskFree, 2)
@@ -1050,14 +1270,24 @@ function Invoke-OptimizationBatch {
   Write-Log $sum
   $path = Complete-SessionLog -Summary $sum
   $health = Get-HealthScore
+  Add-HealthHistory -Score $health.Score
+  $successCount = @($script:ActionResults | Where-Object Status -eq 'SUCCESS').Count
+  $partialCount = @($script:ActionResults | Where-Object Status -eq 'PARTIAL').Count
+  $failedCount = @($script:ActionResults | Where-Object Status -eq 'FAILED').Count
+  $skippedCount = @($script:ActionResults | Where-Object Status -eq 'SKIPPED').Count
   try {
     [Console]::Out.WriteLine(('##RESULT##|AFTER|{0}|{1}|{2}|{3}|{4}|{5}|{6}' -f $after.DiskFree, $after.DiskTot, $after.RamUsed, $after.RamTot, [math]::Round($freed,1), $path, $health.Score))
+    [Console]::Out.WriteLine(('##SUMMARY##|SUCCESS={0}|PARTIAL={1}|SKIPPED={2}|FAILED={3}|TOTAL={4}' -f $successCount, $partialCount, $skippedCount, $failedCount, $script:ActionResults.Count))
     [Console]::Out.WriteLine(('##DONE##|{0}' -f $(if ($cancelled) { 'CANCELLED' } elseif ($failed) { 'FAILED' } else { 'OK' })))
   } catch {}
+  Exit-ExecutionLock
   return [pscustomobject]@{
     FreedMB = $freed; DeltaGB = $delta; Log = $path; EstimatedMB = $est
     Before = $before; After = $after; Cancelled = $cancelled; Blocked = $false
-    Failed = $failed; Health = $health
+    Failed = $failed; Health = $health; ActionResults = @($script:ActionResults | ForEach-Object { $_ })
+  }
+  } finally {
+    Exit-ExecutionLock
   }
 }
 
@@ -1199,12 +1429,205 @@ function Get-HighRiskActionIds {
   return @($Ids | Where-Object { (Get-ActionRiskLevel $_) -eq 'high' } | Select-Object -Unique)
 }
 
+function Get-UserDataDirectory {
+  Split-Path (Get-AppSettingsPath) -Parent
+}
+
+function Get-ReversibleActionIds {
+  @('powerhigh','powerbal','visual','bgapps','tips','widgets','storage','searchweb','gamebar','gamemode','nettweak','nagle','dnscloud','dnsgoogle')
+}
+
+function Get-TweakRegistryMap {
+  @{
+    visual    = @(@{ Path='HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects'; Name='VisualFXSetting' }, @{ Path='HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'; Name='EnableTransparency' }, @{ Path='HKCU:\Control Panel\Desktop\WindowMetrics'; Name='MinAnimate' })
+    bgapps    = @(@{ Path='HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications'; Name='GlobalUserDisabled' })
+    tips      = @(@{ Path='HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Name='SystemPaneSuggestionsEnabled' }, @{ Path='HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Name='SoftLandingEnabled' }, @{ Path='HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Name='SubscribedContent-338389Enabled' })
+    widgets   = @(@{ Path='HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name='TaskbarDa' }, @{ Path='HKLM:\SOFTWARE\Policies\Microsoft\Dsh'; Name='AllowNewsAndInterests' })
+    storage   = @(@{ Path='HKCU:\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy'; Name='01' }, @{ Path='HKCU:\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy'; Name='04' }, @{ Path='HKCU:\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy'; Name='08' }, @{ Path='HKCU:\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy'; Name='32' })
+    searchweb = @(@{ Path='HKCU:\Software\Policies\Microsoft\Windows\Explorer'; Name='DisableSearchBoxSuggestions' })
+    gamebar   = @(@{ Path='HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR'; Name='AppCaptureEnabled' }, @{ Path='HKCU:\System\GameConfigStore'; Name='GameDVR_Enabled' }, @{ Path='HKLM:\SOFTWARE\Policies\Microsoft\Windows\GameDVR'; Name='AllowGameDVR' })
+    gamemode  = @(@{ Path='HKCU:\Software\Microsoft\GameBar'; Name='AutoGameModeEnabled' }, @{ Path='HKCU:\Software\Microsoft\GameBar'; Name='AllowAutoGameMode' })
+    nettweak  = @(@{ Path='HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'; Name='NetworkThrottlingIndex' }, @{ Path='HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'; Name='SystemResponsiveness' })
+  }
+}
+
+function Read-RegSnapshot {
+  param([string]$Path, [string]$Name)
+  $existed = $false; $value = $null
+  if (Test-Path -LiteralPath $Path) {
+    try { $value = (Get-ItemProperty -LiteralPath $Path -Name $Name -ErrorAction Stop).$Name; $existed = $true } catch {}
+  }
+  [pscustomobject]@{ Path = $Path; Name = $Name; Existed = $existed; Value = $value }
+}
+
+function Save-TweakSnapshot {
+  param([string[]]$Ids)
+  $hit = @($Ids | Where-Object { (Get-ReversibleActionIds) -contains $_ })
+  if ($hit.Count -eq 0) { return }
+  $snap = [ordered]@{
+    capturedUtc = [DateTime]::UtcNow.ToString('o')
+    actions = @($hit)
+    powerScheme = $null
+    dns = @()
+    registry = @()
+    nagle = @()
+  }
+  if ($hit -contains 'powerhigh' -or $hit -contains 'powerbal') {
+    $scheme = (& powercfg.exe /getactivescheme 2>&1 | Out-String)
+    if ($scheme -match '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}') { $snap.powerScheme = $matches[0] }
+  }
+  if ($hit -contains 'dnscloud' -or $hit -contains 'dnsgoogle') {
+    try {
+      if ((Test-CommandAvailable 'Get-NetAdapter') -and (Test-CommandAvailable 'Get-DnsClientServerAddress')) {
+        foreach ($adapter in @(Get-NetAdapter -ErrorAction Stop | Where-Object Status -eq 'Up')) {
+          $servers = @(Get-DnsClientServerAddress -InterfaceIndex ([int]$adapter.ifIndex) -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object { $_.ServerAddresses })
+          $snap.dns += [pscustomobject]@{ Index = [int]$adapter.ifIndex; Name = [string]$adapter.Name; Servers = @($servers) }
+        }
+      }
+    } catch { Write-Log ("Snapshot DNS falhou: {0}" -f $_.Exception.Message) 'WARN' }
+  }
+  $map = Get-TweakRegistryMap
+  foreach ($id in $hit) {
+    if (-not $map.ContainsKey($id)) { continue }
+    foreach ($entry in @($map[$id])) { $snap.registry += Read-RegSnapshot -Path $entry.Path -Name $entry.Name }
+  }
+  if ($hit -contains 'nagle') {
+    Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces' -ErrorAction SilentlyContinue | ForEach-Object {
+      $ack = $null; $delay = $null
+      try { $ack = (Get-ItemProperty $_.PSPath -Name TcpAckFrequency -ErrorAction Stop).TcpAckFrequency } catch {}
+      try { $delay = (Get-ItemProperty $_.PSPath -Name TCPNoDelay -ErrorAction Stop).TCPNoDelay } catch {}
+      $snap.nagle += [pscustomobject]@{ Path = [string]$_.PSPath; TcpAckFrequency = $ack; TCPNoDelay = $delay }
+    }
+  }
+  $path = Join-Path (Get-UserDataDirectory) 'last-tweaks.json'
+  ($snap | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $path -Encoding UTF8
+  Write-Log ("Snapshot de ajustes salvo ({0} acoes reversíveis)." -f $hit.Count)
+}
+
+function Test-AllowedTweakRegistry {
+  param([string]$Path, [string]$Name)
+  if (-not $Path -or -not $Name) { return $false }
+  if ($Path -notmatch '^HK(?:CU|LM):\\') { return $false }
+  if ($Name -notmatch '^[A-Za-z0-9_\-]{1,80}$') { return $false }
+  $map = Get-TweakRegistryMap
+  foreach ($id in $map.Keys) {
+    foreach ($entry in @($map[$id])) {
+      if ([string]$entry.Path -eq $Path -and [string]$entry.Name -eq $Name) { return $true }
+    }
+  }
+  return $false
+}
+
+function Test-NagleRestorePath {
+  param([string]$Path)
+  if (-not $Path) { return $false }
+  return $Path -match '(^|[\\:])SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\[0-9a-fA-F\-]{36}$'
+}
+
+function Test-Ipv4Address {
+  param([string]$Value)
+  $parts = @($Value -split '\.')
+  if ($parts.Count -ne 4) { return $false }
+  foreach ($part in $parts) {
+    $n = 0
+    if (-not [int]::TryParse($part, [ref]$n)) { return $false }
+    if ($n -lt 0 -or $n -gt 255) { return $false }
+  }
+  return $true
+}
+
+function Convert-OptionalDword {
+  param($Value)
+  if ($null -eq $Value) { return $null }
+  $n = 0
+  if (-not [int]::TryParse([string]$Value, [ref]$n)) { return $null }
+  return [int]$n
+}
+
+function Restore-LastTweaks {
+  $path = Join-Path (Get-UserDataDirectory) 'last-tweaks.json'
+  if (-not (Test-Path -LiteralPath $path)) { throw 'Nao ha ajustes recentes para desfazer.' }
+  $snap = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+  if ($snap.powerScheme -and [string]$snap.powerScheme -notmatch '^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') {
+    Write-Log 'Snapshot ignorou plano de energia com GUID invalido.' 'WARN'
+    $snap.powerScheme = $null
+  }
+  if ($snap.powerScheme) {
+    $null = Invoke-ExternalChecked 'powercfg.exe' @('/setactive', [string]$snap.powerScheme) @(0) 'Restaurar plano de energia'
+  }
+  foreach ($dns in @($snap.dns)) {
+    try {
+      $idx = 0
+      if (-not [int]::TryParse([string]$dns.Index, [ref]$idx) -or $idx -lt 1) { continue }
+      $servers = @($dns.Servers | ForEach-Object { [string]$_ } | Where-Object { $_ -and (Test-Ipv4Address $_) })
+      if ($servers.Count -gt 0) { Set-DnsClientServerAddress -InterfaceIndex $idx -ServerAddresses $servers -ErrorAction Stop }
+      else { Set-DnsClientServerAddress -InterfaceIndex $idx -ResetServerAddresses -ErrorAction Stop }
+      Write-Log ("DNS restaurado: {0}" -f $dns.Name)
+    } catch { Write-Log ("Falha ao restaurar DNS {0}: {1}" -f $dns.Name, $_.Exception.Message) 'WARN' }
+  }
+  foreach ($reg in @($snap.registry)) {
+    if (-not (Test-AllowedTweakRegistry -Path ([string]$reg.Path) -Name ([string]$reg.Name))) {
+      Write-Log ("Snapshot ignorou registro fora da allowlist: {0}\{1}" -f $reg.Path, $reg.Name) 'WARN'
+      continue
+    }
+    try {
+      if ($reg.Existed) {
+        if (-not (Test-Path -LiteralPath $reg.Path)) { New-Item -Path $reg.Path -Force | Out-Null }
+        Set-ItemProperty -LiteralPath $reg.Path -Name $reg.Name -Value $reg.Value -Force -ErrorAction Stop
+      } else {
+        Remove-ItemProperty -LiteralPath $reg.Path -Name $reg.Name -Force -ErrorAction SilentlyContinue
+      }
+    } catch { Write-Log ("Falha ao restaurar registro {0}\{1}: {2}" -f $reg.Path, $reg.Name, $_.Exception.Message) 'WARN' }
+  }
+  foreach ($nagle in @($snap.nagle)) {
+    if (-not (Test-NagleRestorePath ([string]$nagle.Path))) {
+      Write-Log 'Snapshot ignorou caminho Nagle fora da allowlist.' 'WARN'
+      continue
+    }
+    try {
+      $ack = Convert-OptionalDword $nagle.TcpAckFrequency
+      $nagleDelay = Convert-OptionalDword $nagle.TCPNoDelay
+      if ($null -ne $ack) { Set-ItemProperty -Path $nagle.Path -Name TcpAckFrequency -Value $ack -Type DWord -Force }
+      elseif ($null -eq $nagle.TcpAckFrequency) { Remove-ItemProperty -Path $nagle.Path -Name TcpAckFrequency -Force -ErrorAction SilentlyContinue }
+      if ($null -ne $nagleDelay) { Set-ItemProperty -Path $nagle.Path -Name TCPNoDelay -Value $nagleDelay -Type DWord -Force }
+      elseif ($null -eq $nagle.TCPNoDelay) { Remove-ItemProperty -Path $nagle.Path -Name TCPNoDelay -Force -ErrorAction SilentlyContinue }
+    } catch { Write-Log ("Falha ao restaurar Nagle: {0}" -f $_.Exception.Message) 'WARN' }
+  }
+  $done = Join-Path (Get-UserDataDirectory) 'last-tweaks.restored.json'
+  Move-Item -LiteralPath $path -Destination $done -Force
+  Write-Log 'Ajustes anteriores restaurados.'
+  return $true
+}
+
+function Test-TweakSnapshotExists {
+  Test-Path -LiteralPath (Join-Path (Get-UserDataDirectory) 'last-tweaks.json')
+}
+
+function Add-HealthHistory {
+  param([int]$Score)
+  $file = Join-Path (Get-UserDataDirectory) 'health.csv'
+  $line = '{0},{1}' -f [DateTime]::UtcNow.ToString('o'), $Score
+  Add-Content -LiteralPath $file -Value $line -Encoding UTF8
+  try {
+    $keep = @(Get-Content -LiteralPath $file -Encoding UTF8 | Select-Object -Last 40)
+    Set-Content -LiteralPath $file -Value $keep -Encoding UTF8
+  } catch {}
+}
+
 function Register-WeeklyCleanup {
+  param(
+    [string]$DaysOfWeek = 'Sunday',
+    [string]$At = '10:00',
+    [string[]]$Actions
+  )
   $task = 'PCOtimizadorProWeekly'
   $payloadBase = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'PC-Otimizador'
   New-Item -ItemType Directory -Path $payloadBase -Force | Out-Null
   & icacls.exe $payloadBase /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)(F)' '*S-1-5-32-544:(OI)(CI)(F)' /setintegritylevel H | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel proteger a pasta do agendamento.' }
+  Get-ChildItem -LiteralPath $payloadBase -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'scheduled-*' } | ForEach-Object {
+    try { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+  }
   $payload = Join-Path $payloadBase ("scheduled-{0}" -f [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $payload -Force | Out-Null
   & icacls.exe $payload /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)(F)' '*S-1-5-32-544:(OI)(CI)(F)' /setintegritylevel H | Out-Null
@@ -1215,13 +1638,23 @@ function Register-WeeklyCleanup {
   }
   Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'core\presets.json') -Destination (Join-Path $payload 'core\presets.json') -Force -ErrorAction Stop
   $cli = Join-Path $payload 'PC-Otimizador-CLI.ps1'
-  $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$cli`" -Preset safe -AutoYes"
+  $ids = @($Actions | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^[a-z][a-z0-9]{0,31}$' })
+  if ($ids.Count -eq 0) { $ids = @(Get-PresetIds 'safe') }
+  $joined = ($ids -join ',')
+  $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$cli`" -Actions `"$joined`" -AutoYes"
+  $high = @(Get-HighRiskActionIds -Ids $ids)
+  if ($high.Count -gt 0) { $arg += ' -AllowHighRisk' }
   $powershell = Join-Path (Get-WindowsRoot) 'System32\WindowsPowerShell\v1.0\powershell.exe'
   $action = New-ScheduledTaskAction -Execute $powershell -Argument $arg
-  $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At 10:00am
+  $day = 'Sunday'
+  try { $day = [DayOfWeek]$DaysOfWeek } catch { $day = [DayOfWeek]::Sunday }
+  if ($At -notmatch '^([01]?\d|2[0-3]):[0-5]\d$') { $At = '10:00' }
+  $when = Get-Date '10:00'
+  try { $when = [DateTime]::ParseExact($At, 'H:mm', [Globalization.CultureInfo]::InvariantCulture) } catch {}
+  $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $day -At $when
   $prin = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest
   Register-ScheduledTask -TaskName $task -Action $action -Trigger $trigger -Principal $prin -Force | Out-Null
-  Write-Log (Get-T 'weeklyOk')
+  Write-Log ("{0} ({1} {2:HH:mm}, {3} acoes)" -f (Get-T 'weeklyOk'), $day, $when, $ids.Count)
 }
 
 function Unregister-WeeklyCleanup {

@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Linux-Bash-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux">
   <img src="https://img.shields.io/badge/macOS-Bash-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Android-Termux-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
-  <img src="https://img.shields.io/badge/v5.7.0-Resilient%20Engine-0d9488?style=for-the-badge" alt="v5.7.0">
+  <img src="https://img.shields.io/badge/v5.9.0-Consent%20%26%20Control-0d9488?style=for-the-badge" alt="v5.9.0">
   <img src="https://img.shields.io/badge/Licença-MIT-22c55e?style=for-the-badge" alt="MIT">
 </p>
 
@@ -67,8 +67,8 @@ Detalhes: [`core/README.md`](core/README.md) · [`core/SECURITY.md`](core/SECURI
 
 1. **[Baixe a release mais recente](https://github.com/leonardolauriquer/PC-Otimizador/releases/latest)** (ZIP + `SHA256SUMS.txt`)
 2. Extraia → **`Executar.bat`** → UAC
-3. Digite **`1`** (Limpeza Segura) → **`E`**  
-   Ou **`8`** = dry-run no menu `.bat` · **`H`** = Health Score
+3. Digite **`1`** (Limpeza Segura) e confirme com **`CONCORDO`**  
+   Na GUI: revise a lista, **Recusar** ou **Concordo — executar** · **`H`** = Health Score
 
 > Anti-AV: use **`Executar.bat`**. O `.exe` é GUI C# nativa (sem ps2exe).
 
@@ -100,7 +100,30 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 
 ---
 
-## Novidades v5.7.0
+## Novidades v5.9.0
+
+- **Consentimento explícito:** a GUI lista cada ação com SAFE / ATENÇÃO / RISCO e estimativa de tamanho; **Recusar** cancela e **Concordo — executar** só libera o que estiver marcado.
+- **Sem simulação na GUI:** dry-run permanece na CLI / `Executar.bat` (`8`); a interface nativa executa somente o que você autorizou.
+- **Última seleção lembrada** por perfil, com histórico de saúde no painel.
+- **Desfazer ajustes:** snapshot de DNS, plano de energia, Nagle e registro conhecidos; o restore ignora caminhos fora da allowlist.
+- **Agenda semanal** com dia, hora e as ações autorizadas (não mais um lote SAFE fixo).
+- **Inicialização do Windows:** habilitar/desabilitar entradas HKCU/HKLM Run, com validação de hive, nome e comando.
+- **Assinatura Authenticode** quando o certificado existir no build; o SmartScreen continua exigindo um certificado real — não é possível forjar confiança.
+
+### Incluído desde v5.8.0
+
+- **Contrato por ação:** cada etapa emite `SUCCESS`, `FAILED`, `SKIPPED` ou `BLOCKED`, método utilizado e causa.
+- **Timeouts:** processos externos possuem limite e são encerrados com segurança quando travam; a GUI possui limite global de duas horas.
+- **Concorrência:** mutex global no Windows e lock com recuperação de estado obsoleto no Linux, macOS e Termux.
+- **Rollback transacional:** alterações de Registro, DNS e plano de energia retornam ao estado anterior quando a ação falha.
+- **Atualização recuperável:** backup da versão anterior, manifesto interno, hashes pós-cópia, teste de inicialização e rollback automático.
+- **Assinatura pronta para produção:** CI assina EXE e scripts e ativa fiscalização no atualizador quando os secrets do certificado são configurados.
+- **Diagnóstico opt-in:** desligado por padrão, sem usuário, caminho, IP, hostname, serial ou ID do dispositivo; consentimento controlável nas Configurações.
+- **Matriz real de CI:** Windows Server 2022/runner atual, Ubuntu 22.04/24.04 e macOS 14/15, além do workflow para laboratório físico.
+- **Testes de falha:** timeout, fallback, lock concorrente, idempotência, rollback, telemetria privada, manifesto adulterado e assinatura obrigatória.
+- **Matriz por recurso:** [`core/compatibility.json`](core/compatibility.json) documenta método, privilégio, reversibilidade e verificação de cada ação.
+
+### Incluído desde v5.7.0
 
 - **Detecção de capacidades:** registra versão/build do Windows, PowerShell, arquitetura, elevação e ferramentas realmente disponíveis.
 - **Fallback controlado:** quando o método moderno falha, tenta uma alternativa compatível e registra qual método funcionou.
@@ -202,7 +225,7 @@ R Remover agenda     H Health   W Whitelist   B Bloat   G GUI   0 Sair
 | `Engine.ps1` | Motor Windows v5 |
 | `PC-Otimizador-CLI.ps1` | Menus terminal |
 | `GuiNative.cs` → `PC-Otimizador.exe` | GUI progresso/cancel |
-| `core/` | Presets + política |
+| `core/` | Presets, política e matriz de compatibilidade por ação |
 | `linux/pc-otimizador.sh` | CLI Linux |
 | `macos/pc-otimizador.sh` | CLI macOS |
 | `android/termux-pc-otimizador.sh` | Termux |
@@ -210,6 +233,9 @@ R Remover agenda     H Health   W Whitelist   B Bloat   G GUI   0 Sair
 | `Tests/Engine.Tests.ps1` | Testes Windows |
 | `Tests/Static.Tests.ps1` | Testes estáticos de segurança e regressão |
 | `Tests/Gui.Layout.Tests.ps1` | Contrato de layout, navegação, páginas e troca de idioma em três resoluções |
+| `Tests/Reliability.Tests.ps1` | Timeout, fallback, concorrência, idempotência, rollback e privacidade |
+| `Tests/Updater.Tests.ps1` | Manifesto, adulteração, assinatura e rollback do atualizador |
+| `Tests/Hardware.Contract.ps1` | Relatório de cobertura de hardware sem identificadores pessoais |
 
 **Whitelist (Windows):** `Documentos\PC-Otimizador-Logs\whitelist.txt`  
 **Logs (Windows):** `Documentos\PC-Otimizador-Logs\sessao-*.txt`
@@ -223,7 +249,33 @@ R Remover agenda     H Health   W Whitelist   B Bloat   G GUI   0 Sair
 - Dry-run e estimativa antes de limpar  
 - DNS / plano de energia / renovar IP / Lixeira / CleanMgr = confirmação explícita
 - Mobile: só sandbox permitido (Termux / docs iOS)  
-- Release com testes + SHA256 obrigatório; Authenticode recomendado para distribuição
+- Release com testes, SHA256, manifesto por arquivo e proveniência assinada pelo GitHub
+- Authenticode é aplicado e exigido automaticamente quando o certificado de produção está configurado
+
+### Diagnóstico opcional
+
+O diagnóstico permanece **desligado por padrão**. Pode ser habilitado na aba Configurações ou pela CLI:
+
+```powershell
+# Apenas arquivo local; não transmite nada
+.\PC-Otimizador-CLI.ps1 -Mode telemetryon
+
+# Transmissão somente após consentimento explícito e somente para HTTPS
+.\PC-Otimizador-CLI.ps1 -Mode telemetryon -TelemetryEndpoint https://seu-endpoint.example/events
+
+.\PC-Otimizador-CLI.ps1 -Mode telemetrystatus
+.\PC-Otimizador-CLI.ps1 -Mode telemetryoff
+```
+
+Campos permitidos: versão do aplicativo, versão/build do sistema, PowerShell, ação, status, duração e categoria genérica da falha. Não são coletados usuário, hostname, caminhos, nomes de arquivos, IP, serial, localização ou identificadores de hardware.
+
+### Assinatura de produção
+
+Configure os secrets `SIGNING_PFX_BASE64` e `SIGNING_PFX_PASSWORD` no GitHub. O pipeline assina o EXE e os scripts com SHA-256 e timestamp, inclui `SIGNING-REQUIRED` no pacote e o atualizador passa a recusar qualquer assinatura inválida. Sem o certificado, a release continua protegida por hashes internos e atestação de proveniência, mas permanece sem reputação Authenticode/SmartScreen.
+
+### Laboratório físico
+
+O workflow `Physical hardware validation` espera runners self-hosted com os labels `windows` e `hardware-lab`. Cadastre máquinas representando Intel, AMD, notebook, SSD SATA, NVMe e HDD e execute o workflow informando o perfil. O artefato gerado deliberadamente exclui serial, hostname, usuário, IP e IDs do dispositivo.
 
 ---
 
@@ -233,12 +285,14 @@ R Remover agenda     H Health   W Whitelist   B Bloat   G GUI   0 Sair
 powershell -ExecutionPolicy Bypass -File .\Tests\Engine.Tests.ps1
 powershell -ExecutionPolicy Bypass -File .\Tests\Static.Tests.ps1
 powershell -ExecutionPolicy Bypass -File .\Tests\Gui.Layout.Tests.ps1
+powershell -ExecutionPolicy Bypass -File .\Tests\Reliability.Tests.ps1
+powershell -ExecutionPolicy Bypass -File .\Tests\Updater.Tests.ps1
 powershell -ExecutionPolicy Bypass -File .\Compilar-EXE.ps1
 ```
 
 ```bash
-git tag v5.7.0
-git push origin v5.7.0
+git tag v5.9.0
+git push origin v5.9.0
 # Actions: testes Windows + smoke Bash → ZIP + SHA256SUMS.txt
 ```
 

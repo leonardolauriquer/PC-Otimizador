@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "policy": {
+    "unknown_capability": "skip_and_report",
+    "all_methods_failed": "fail_action",
+    "success_requires": "exit_code_or_postcondition",
+    "telemetry_default": "off"
+  },
+  "platforms": {
+    "windows": {
+      "supported": ["Windows 10", "Windows 11"],
+      "capability_based": ["Windows Server Desktop Experience"],
+      "requirements": ["PowerShell 5.1", ".NET Framework 4.8 for GUI"],
+      "actions": {
+        "restore": { "admin": true, "reversible": false, "methods": ["Checkpoint-Computer", "WMI SystemRestore"], "verify": "return status" },
+        "temp": { "admin": true, "reversible": false, "methods": ["allowlisted filesystem cleanup"], "verify": "before/after size" },
+        "recycle": { "admin": true, "reversible": false, "methods": ["Clear-RecycleBin", "Shell.Application"], "verify": "method completion" },
+        "update": { "admin": true, "reversible": false, "methods": ["service stop + allowlisted cleanup"], "verify": "before/after size and service restore" },
+        "delivery": { "admin": true, "reversible": false, "methods": ["allowlisted filesystem cleanup"], "verify": "before/after size" },
+        "thumbs": { "admin": false, "reversible": false, "methods": ["Explorer cache cleanup"], "verify": "before/after size" },
+        "wer": { "admin": true, "reversible": false, "methods": ["WER allowlisted cleanup"], "verify": "before/after size" },
+        "logs": { "admin": true, "reversible": false, "methods": ["Windows log allowlist"], "verify": "before/after size" },
+        "recent": { "admin": false, "reversible": false, "methods": ["Recent shortcuts cleanup"], "verify": "before/after size" },
+        "font": { "admin": true, "reversible": false, "methods": ["FontCache service cycle"], "verify": "service restored" },
+        "cleanmgr": { "admin": true, "reversible": false, "methods": ["cleanmgr temporary StateFlags"], "verify": "exit code" },
+        "dismcleanup": { "admin": true, "reversible": false, "methods": ["DISM StartComponentCleanup"], "verify": "exit code 0/3010" },
+        "browser": { "admin": false, "reversible": false, "methods": ["browser cache allowlist"], "verify": "before/after size" },
+        "gpu": { "admin": false, "reversible": false, "methods": ["GPU cache allowlist"], "verify": "before/after size" },
+        "apps": { "admin": false, "reversible": false, "methods": ["application cache allowlist"], "verify": "before/after size" },
+        "store": { "admin": false, "reversible": false, "methods": ["wsreset.exe"], "verify": "process launch" },
+        "prefetch": { "admin": true, "reversible": false, "methods": ["Prefetch allowlist"], "verify": "before/after size" },
+        "upgrade": { "admin": true, "reversible": false, "methods": ["takeown + icacls + allowlisted cleanup"], "verify": "before/after size" },
+        "trim": { "admin": true, "reversible": false, "methods": ["Optimize-Volume", "defrag.exe /L"], "verify": "exit code" },
+        "storage": { "admin": false, "reversible": true, "methods": ["registry"], "verify": "read-back" },
+        "tips": { "admin": true, "reversible": true, "methods": ["registry"], "verify": "read-back" },
+        "powerhigh": { "admin": true, "reversible": true, "methods": ["powercfg existing scheme", "powercfg duplicate scheme"], "verify": "active GUID" },
+        "powerbal": { "admin": true, "reversible": true, "methods": ["powercfg"], "verify": "active GUID" },
+        "visual": { "admin": false, "reversible": true, "methods": ["registry"], "verify": "read-back" },
+        "bgapps": { "admin": false, "reversible": true, "methods": ["registry"], "verify": "read-back" },
+        "widgets": { "admin": true, "reversible": true, "methods": ["registry"], "verify": "read-back" },
+        "searchweb": { "admin": false, "reversible": true, "methods": ["registry"], "verify": "read-back" },
+        "gamebar": { "admin": true, "reversible": true, "methods": ["registry"], "verify": "read-back" },
+        "gamemode": { "admin": false, "reversible": true, "methods": ["registry"], "verify": "read-back" },
+        "dns": { "admin": false, "reversible": false, "methods": ["Clear-DnsClientCache", "ipconfig /flushdns"], "verify": "exit code" },
+        "arp": { "admin": true, "reversible": false, "methods": ["arp.exe"], "verify": "exit code" },
+        "netbios": { "admin": true, "reversible": false, "methods": ["nbtstat.exe"], "verify": "exit code" },
+        "nettweak": { "admin": true, "reversible": true, "methods": ["netsh supported settings + registry"], "verify": "exit code and read-back" },
+        "renewip": { "admin": true, "reversible": false, "methods": ["ipconfig release/renew"], "verify": "exit code" },
+        "dnscloud": { "admin": true, "reversible": true, "methods": ["DnsClient cmdlets", "WMI"], "verify": "server address read-back" },
+        "dnsgoogle": { "admin": true, "reversible": true, "methods": ["DnsClient cmdlets", "WMI"], "verify": "server address read-back" },
+        "nagle": { "admin": true, "reversible": true, "methods": ["registry"], "verify": "read-back" },
+        "winsock": { "admin": true, "reversible": false, "methods": ["netsh winsock"], "verify": "exit code; reboot required" },
+        "tcpip": { "admin": true, "reversible": false, "methods": ["netsh int ip"], "verify": "exit code; reboot required" },
+        "sfc": { "admin": true, "reversible": false, "methods": ["sfc.exe"], "verify": "exit code 0/1" },
+        "dismrestore": { "admin": true, "reversible": false, "methods": ["DISM RestoreHealth"], "verify": "exit code 0/3010" }
+      }
+    },
+    "linux": { "module": "linux/pc-otimizador.sh", "packageManagers": ["apt", "dnf", "pacman", "zypper"] },
+    "macos": { "module": "macos/pc-otimizador.sh", "optional": ["Homebrew"] },
+    "termux": { "module": "android/termux-pc-otimizador.sh", "scope": "Termux sandbox only" },
+    "ios": { "supported": false, "reason": "Platform sandbox does not permit system optimization." }
+  }
+}

@@ -1,0 +1,33 @@
+name: Physical hardware validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Hardware profile label (intel-desktop, amd-desktop, notebook, sata-ssd, nvme, hdd)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: [self-hosted, windows, hardware-lab]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Safety, reliability and dry-run validation
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests\Engine.Tests.ps1
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests\Reliability.Tests.ps1
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\PC-Otimizador-CLI.ps1 -Preset safe -DryRun -AutoYes
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests\Hardware.Contract.ps1
+          Add-Content hardware-contract.json "`n"
+      - name: Upload privacy-safe hardware contract
+        uses: actions/upload-artifact@v4
+        with:
+          name: physical-${{ inputs.profile }}-${{ runner.name }}
+          path: hardware-contract.json
+          retention-days: 90

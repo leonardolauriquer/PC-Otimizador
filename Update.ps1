@@ -13,7 +13,8 @@ param(
   [string]$Repo = 'leonardolauriquer/PC-Otimizador',
   [string]$Relaunch = '',
   [switch]$CheckOnly,
-  [switch]$Quiet
+  [switch]$Quiet,
+  [switch]$LibraryOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -81,6 +82,36 @@ function Test-ZipEntriesSafe([string]$Destination, $Zip) {
   }
   return $true
 }
+
+function Test-PackageManifest([string]$PackageRoot) {
+  $manifestPath = Join-Path $PackageRoot 'package-manifest.json'
+  if (-not (Test-Path -LiteralPath $manifestPath)) { throw 'Pacote sem package-manifest.json.' }
+  $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+  if (-not $manifest.files) { throw 'Manifesto do pacote sem arquivos.' }
+  foreach ($entry in $manifest.files) {
+    $relative = [string]$entry.path
+    if (-not $relative -or $relative -match '(^|[\/])\.\.([\/]|$)' -or $relative -match '^[\\/]' -or $relative -match '^[A-Za-z]:') { throw "Caminho invalido no manifesto: $relative" }
+    $file = Join-Path $PackageRoot $relative
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Arquivo do manifesto ausente: $relative" }
+    if (-not (Test-Sha256 $file ([string]$entry.sha256))) { throw "Hash interno invalido: $relative" }
+  }
+  return $true
+}
+
+function Test-AuthenticodePolicy([string]$PackageRoot) {
+  $policy = Join-Path $PackageRoot 'SIGNING-REQUIRED'
+  if (-not (Test-Path -LiteralPath $policy)) { return $true }
+  $expectedThumbprint = ((Get-Content -LiteralPath $policy -Raw) -replace '[^0-9A-Fa-f]','').ToUpperInvariant()
+  if ($expectedThumbprint.Length -lt 40) { throw 'Politica de assinatura sem thumbprint valido.' }
+  foreach ($relative in @('PC-Otimizador.exe','Engine.ps1','PC-Otimizador-CLI.ps1','Update.ps1')) {
+    $signature = Get-AuthenticodeSignature -FilePath (Join-Path $PackageRoot $relative)
+    if ($signature.Status -ne 'Valid') { throw "Assinatura Authenticode invalida em $relative ($($signature.Status))." }
+    if (-not $signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint.ToUpperInvariant() -ne $expectedThumbprint) { throw "Certificado inesperado em $relative." }
+  }
+  return $true
+}
+
+if ($LibraryOnly) { return }
 
 $local = Get-LocalVersion
 Write-U ("Versao local: {0}" -f $local)
@@ -160,7 +191,7 @@ try {
     $src = $children[0].FullName
   }
 
-  $required = @('Executar.bat','Engine.ps1','PC-Otimizador-CLI.ps1','PC-Otimizador.exe','Update.ps1','VERSION','core\presets.json')
+  $required = @('Executar.bat','Engine.ps1','PC-Otimizador-CLI.ps1','PC-Otimizador.exe','Update.ps1','VERSION','core\presets.json','package-manifest.json')
   foreach ($file in $required) {
     if (-not (Test-Path -LiteralPath (Join-Path $src $file))) { throw "Pacote invalido (faltando $file)." }
   }
@@ -168,6 +199,9 @@ try {
   if ((Compare-Version $packageVersion $remote) -ne 0) {
     throw "VERSION do pacote ($packageVersion) nao corresponde a release ($remote)."
   }
+  $null = Test-PackageManifest $src
+  $null = Test-AuthenticodePolicy $src
+  Write-U 'Manifesto interno e politica de assinatura verificados.' 'Green'
 
   if (-not $Relaunch) {
     $exe = Join-Path $Root 'PC-Otimizador.exe'
@@ -177,42 +211,80 @@ try {
     else { $Relaunch = $bat }
   }
 
-  $apply = Join-Path $work 'apply-update.cmd'
-  $srcEsc = $src
-  $dstEsc = $Root
-  $relaunchEsc = $Relaunch
+  $apply = Join-Path $work 'apply-update.ps1'
+  $template = @'
+$ErrorActionPreference = 'Stop'
+$src = '__SRC__'
+$dst = '__DST__'
+$relaunch = '__RELAUNCH__'
+$version = '__VERSION__'
+$rollbackRoot = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'PC-Otimizador\rollback'
+$backup = Join-Path $rollbackRoot ('previous-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$statusFile = Join-Path $rollbackRoot 'last-update.json'
+New-Item -ItemType Directory -Path $backup -Force | Out-Null
 
-  $cmd = @"
-@echo off
-setlocal
-echo PC Otimizador — aplicando atualizacao $safeRemote ...
-timeout /t 3 /nobreak >nul
-:wait_exe
-tasklist | find /I "PC-Otimizador.exe" >nul
-if not errorlevel 1 (
-  timeout /t 1 /nobreak >nul
-  goto wait_exe
-)
-  echo Copiando arquivos...
-  xcopy /E /Y /Q /I "$srcEsc\*" "$dstEsc\" >nul
-  if errorlevel 2 goto copy_failed
-  if exist "$dstEsc\VERSION" (
-    echo Atualizado. VERSION:
-    type "$dstEsc\VERSION"
-  )
-  start "" "$relaunchEsc"
-  timeout /t 1 /nobreak >nul
-  rd /s /q "$work" >nul 2>nul
-  del "%~f0" >nul 2>nul
-  exit /b 0
-:copy_failed
-  echo Falha ao copiar o pacote; instalacao nao confirmada.
-  exit /b 1
-"@
-  Set-Content -LiteralPath $apply -Value $cmd -Encoding ASCII
+function Write-UpdateStatus([string]$Status, [string]$Message) {
+  [ordered]@{ version=$version; status=$Status; message=$Message; timestampUtc=[DateTime]::UtcNow.ToString('o'); backup=$backup } |
+    ConvertTo-Json | Set-Content -LiteralPath $statusFile -Encoding UTF8
+}
+function Get-TargetProcess {
+  Get-CimInstance Win32_Process -Filter "Name='PC-Otimizador.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.ExecutablePath -and [string]::Equals($_.ExecutablePath, (Join-Path $dst 'PC-Otimizador.exe'), [StringComparison]::OrdinalIgnoreCase) }
+}
+
+try {
+  $limit = [DateTime]::UtcNow.AddMinutes(2)
+  while ((Get-TargetProcess) -and [DateTime]::UtcNow -lt $limit) { Start-Sleep -Seconds 1 }
+  if (Get-TargetProcess) { throw 'A versao anterior nao encerrou em dois minutos.' }
+
+  $manifest = Get-Content -LiteralPath (Join-Path $src 'package-manifest.json') -Raw | ConvertFrom-Json
+  foreach ($entry in $manifest.files) {
+    $old = Join-Path $dst ([string]$entry.path)
+    if (Test-Path -LiteralPath $old -PathType Leaf) {
+      $copy = Join-Path $backup ([string]$entry.path)
+      New-Item -ItemType Directory -Path (Split-Path $copy -Parent) -Force | Out-Null
+      Copy-Item -LiteralPath $old -Destination $copy -Force
+    }
+  }
+  if (Test-Path -LiteralPath (Join-Path $dst 'package-manifest.json')) { Copy-Item -LiteralPath (Join-Path $dst 'package-manifest.json') -Destination $backup -Force }
+
+  Copy-Item -Path (Join-Path $src '*') -Destination $dst -Recurse -Force
+  if ((Get-Content -LiteralPath (Join-Path $dst 'VERSION') -Raw).Trim() -ne $version) { throw 'VERSION nao confirmou a nova versao.' }
+  foreach ($entry in $manifest.files) {
+    $installed = Join-Path $dst ([string]$entry.path)
+    if (-not (Test-Path -LiteralPath $installed -PathType Leaf)) { throw "Arquivo instalado ausente: $($entry.path)" }
+    if ((Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash.ToLowerInvariant() -ne ([string]$entry.sha256).ToLowerInvariant()) { throw "Hash pos-instalacao invalido: $($entry.path)" }
+  }
+
+  $newProcess = Start-Process -FilePath $relaunch -PassThru
+  Start-Sleep -Seconds 8
+  $exeRelaunch = [IO.Path]::GetExtension($relaunch) -ieq '.exe'
+  if ($exeRelaunch -and $newProcess.HasExited) { throw "A nova versao encerrou prematuramente (codigo $($newProcess.ExitCode))." }
+  Write-UpdateStatus 'SUCCESS' 'Nova versao iniciada e hashes confirmados.'
+  exit 0
+} catch {
+  $reason = $_.Exception.Message
+  try {
+    if ($manifest -and $manifest.files) {
+      foreach ($entry in $manifest.files) {
+        $target = Join-Path $dst ([string]$entry.path)
+        if (Test-Path -LiteralPath $target -PathType Leaf) { Remove-Item -LiteralPath $target -Force }
+      }
+    }
+    $installedManifest = Join-Path $dst 'package-manifest.json'
+    if (Test-Path -LiteralPath $installedManifest) { Remove-Item -LiteralPath $installedManifest -Force }
+    Copy-Item -Path (Join-Path $backup '*') -Destination $dst -Recurse -Force
+    Write-UpdateStatus 'ROLLED_BACK' $reason
+    if (Test-Path -LiteralPath $relaunch) { Start-Process -FilePath $relaunch | Out-Null }
+  } catch { Write-UpdateStatus 'ROLLBACK_FAILED' ($reason + ' | ' + $_.Exception.Message) }
+  exit 1
+}
+'@
+  $applyScript = $template.Replace('__SRC__', $src.Replace("'","''")).Replace('__DST__', $Root.Replace("'","''")).Replace('__RELAUNCH__', $Relaunch.Replace("'","''")).Replace('__VERSION__', $remote.Replace("'","''"))
+  Set-Content -LiteralPath $apply -Value $applyScript -Encoding UTF8
 
   Write-U ("Aplicando {0} e reiniciando..." -f $remote) 'Green'
-  Start-Process -FilePath $apply -WindowStyle Normal
+  Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $apply + '"')) -WindowStyle Hidden
   exit 10
 } catch {
   Write-U ("Falha na atualizacao: {0}" -f $_.Exception.Message) 'Red'

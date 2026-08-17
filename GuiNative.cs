@@ -3,10 +3,13 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Globalization;
 using System.IO;
 using System.Management;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -31,15 +34,14 @@ namespace PCOtimizador
             { "language.label", new[] { "IDIOMA", "LANGUAGE" } },
             { "language.pt", new[] { "Português", "Portuguese" } },
             { "language.en", new[] { "English", "English" } },
-            { "header.dashboard", new[] { "Painel · Escolha um perfil · Passe o mouse para detalhes", "Dashboard · Choose a profile · Hover for details" } },
+            { "header.dashboard", new[] { "Painel · Escolha um perfil, revise as ações e confirme", "Dashboard · Choose a profile, review the actions and confirm" } },
             { "header.limpeza", new[] { "Limpeza · Temporários seguros e espaço recuperável", "Cleanup · Safe temporary files and recoverable space" } },
             { "header.desempenho", new[] { "Desempenho · Mais resposta para jogos e tarefas", "Performance · More response for games and heavy tasks" } },
             { "header.internet", new[] { "Internet · Diagnóstico e otimização de rede", "Network · Diagnostics and network optimization" } },
-            { "header.inicializacao", new[] { "Inicialização · Rotinas seguras e manutenção", "Startup · Safe routines and maintenance" } },
-            { "header.ferramentas", new[] { "Ferramentas · Medir, agendar e abrir logs", "Tools · Measure, schedule and open logs" } },
+            { "header.inicializacao", new[] { "Inicialização · Programas que abrem com o Windows", "Startup · Programs that open with Windows" } },
+            { "header.ferramentas", new[] { "Ferramentas · Saúde, agenda, desfazer e logs", "Tools · Health, schedule, undo and logs" } },
             { "header.dispositivo", new[] { "Dispositivo · Hardware, sistema, frequências e sensores", "Device · Hardware, system, frequencies and sensors" } },
             { "header.configuracoes", new[] { "Configurações · Idioma, segurança e como usar", "Settings · Language, safety and how to use" } },
-            { "dryrun", new[] { "SIMULAÇÃO", "DRY-RUN" } },
             { "badge.safe", new[] { "SEGURO", "SAFE" } },
             { "badge.risk", new[] { "RISCO", "RISK" } },
             { "cancel", new[] { "PARAR", "STOP" } },
@@ -60,8 +62,8 @@ namespace PCOtimizador
             { "page.desempenho.desc", new[] { "Perfis para jogos, tarefas pesadas e saúde do sistema.", "Profiles for games, heavy tasks and system health." } },
             { "page.internet.title", new[] { "Internet", "Network" } },
             { "page.internet.desc", new[] { "Ações transparentes para diagnosticar e melhorar sua conexão.", "Transparent actions to diagnose and improve your connection." } },
-            { "page.inicializacao.title", new[] { "Inicialização", "Startup" } },
-            { "page.inicializacao.desc", new[] { "Manutenção programada e diagnóstico sem alterações agressivas.", "Scheduled maintenance and diagnostics without aggressive changes." } },
+            { "page.inicializacao.title", new[] { "Inicialização do Windows", "Windows startup" } },
+            { "page.inicializacao.desc", new[] { "Marque o que pode abrir com o Windows. Depois Recusar ou Concordo.", "Check what may start with Windows. Then Decline or I consent." } },
             { "page.ferramentas.title", new[] { "Ferramentas", "Tools" } },
             { "page.ferramentas.desc", new[] { "Ações que medem ou configuram — sem limpeza agressiva.", "Actions that measure or configure — no aggressive cleanup." } },
             { "page.dispositivo.title", new[] { "Informações do dispositivo", "Device information" } },
@@ -79,9 +81,9 @@ namespace PCOtimizador
             { "card.health.title", new[] { "Pontuação de saúde", "Health score" } },
             { "card.health.sub", new[] { "Nota 0–100 do PC", "PC score from 0–100" } },
             { "card.scan.title", new[] { "Estimar espaço", "Estimate space" } },
-            { "card.scan.sub", new[] { "Simula quanto poderia liberar", "Simulates how much could be freed" } },
+            { "card.scan.sub", new[] { "Mostra o espaço que poderia ser liberado", "Shows how much space could be freed" } },
             { "card.schedule.title", new[] { "Agendar", "Schedule" } },
-            { "card.schedule.sub", new[] { "Domingo 10h · somente SEGURO", "Sunday 10 AM · SAFE only" } },
+            { "card.schedule.sub", new[] { "Dia, hora e as ações que você autorizar", "Day, time and the actions you authorize" } },
             { "card.logs.title", new[] { "Abrir logs", "Open logs" } },
             { "card.logs.sub", new[] { "Histórico das sessões", "Session history" } },
             { "card.run", new[] { "ABRIR", "OPEN" } },
@@ -89,8 +91,21 @@ namespace PCOtimizador
             { "settings.language.desc", new[] { "Troque o idioma sem reiniciar o aplicativo.", "Change the language without restarting the app." } },
             { "settings.safety.title", new[] { "Proteção ativa", "Protection active" } },
             { "settings.safety.text", new[] { "Documentos, Fotos, Vídeos, Música, Desktop, Downloads e OneDrive nunca são alvos da limpeza segura.", "Documents, Pictures, Videos, Music, Desktop, Downloads and OneDrive are never targets of safe cleanup." } },
+            { "settings.telemetry.title", new[] { "Diagnóstico opcional", "Optional diagnostics" } },
+            { "settings.telemetry.text", new[] { "Desligado por padrão. Registra somente versão, build, ação, duração e categoria da falha. Nunca inclui usuário, caminhos, IP, serial ou nome do computador.", "Off by default. Records only version, build, action, duration and failure category. Never includes user, paths, IP, serial number or computer name." } },
+            { "settings.telemetry.on", new[] { "ATIVADA", "ENABLED" } },
+            { "settings.telemetry.off", new[] { "DESATIVADA", "DISABLED" } },
             { "settings.help.title", new[] { "Como usar", "How to use" } },
-            { "settings.help.text", new[] { "1. Ative SIMULAÇÃO para revisar.\n2. Rode Saúde ou Estimar espaço.\n3. Execute um perfil somente após conferir a confirmação.\n\nPerfis de RISCO sempre pedem confirmação explícita.", "1. Enable DRY-RUN to review.\n2. Run Health or Estimate space.\n3. Execute a profile only after reviewing the confirmation.\n\nRISK profiles always require explicit confirmation." } },
+            { "settings.help.text", new[] { "1. Clique em um perfil e desmarque o que não autoriza.\n2. Recusar cancela; Concordo executa só o marcado.\n3. O programa lembra a última escolha.\n4. Ajustes (DNS/energia) podem ser desfeitos em Ferramentas.\n5. A agenda usa as ações que você autorizar.", "1. Click a profile and uncheck anything you do not authorize.\n2. Decline cancels; I consent runs only what stayed checked.\n3. The app remembers your last choice.\n4. Tweaks (DNS/power) can be undone in Tools.\n5. The schedule uses the actions you authorize." } },
+            { "card.undo.title", new[] { "Desfazer ajustes", "Undo tweaks" } },
+            { "card.undo.sub", new[] { "Restaura DNS, energia e efeitos da última execução", "Restores DNS, power and effects from the last run" } },
+            { "button.undo", new[] { "Desfazer últimos ajustes", "Undo last tweaks" } },
+            { "button.applyStartup", new[] { "Aplicar inicialização", "Apply startup changes" } },
+            { "card.startup.title", new[] { "Programas na inicialização", "Startup programs" } },
+            { "card.startup.sub", new[] { "Liga ou desliga o que abre com o Windows", "Enable or disable what starts with Windows" } },
+            { "settings.signing.title", new[] { "Assinatura do aplicativo", "Application signature" } },
+            { "settings.signing.ok", new[] { "Este executável está assinado (Authenticode). O SmartScreen tende a confiar mais.", "This executable is Authenticode-signed. SmartScreen is more likely to trust it." } },
+            { "settings.signing.missing", new[] { "Este build não está assinado. Sem certificado de produção o SmartScreen pode avisar — use Executar.bat ou confira o hash da release.", "This build is unsigned. Without a production certificate SmartScreen may warn — use Executar.bat or verify the release hash." } },
             { "button.runSafe", new[] { "Executar limpeza segura", "Run safe cleanup" } },
             { "button.runGamer", new[] { "Executar Turbo Gamer", "Run Turbo Gamer" } },
             { "button.runNet", new[] { "Diagnosticar internet", "Diagnose network" } },
@@ -117,6 +132,1120 @@ namespace PCOtimizador
             string[] value;
             if (!Values.TryGetValue(key, out value)) return key;
             return value[english ? 1 : 0];
+        }
+    }
+
+    sealed class ActionSpec
+    {
+        public string Id;
+        public string Pt;
+        public string En;
+        public string Risk;
+        public string Label(bool english) { return english ? En : Pt; }
+        public bool IsHigh { get { return string.Equals(Risk, "high", StringComparison.OrdinalIgnoreCase); } }
+        public bool IsMedium { get { return string.Equals(Risk, "medium", StringComparison.OrdinalIgnoreCase); } }
+    }
+
+    static class ActionCatalog
+    {
+        static readonly Dictionary<string, ActionSpec> Map = new Dictionary<string, ActionSpec>(StringComparer.OrdinalIgnoreCase);
+        static readonly Dictionary<string, string[]> Presets = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+
+        static ActionCatalog()
+        {
+            Add("restore", "Criar ponto de restauração", "Create a restore point", "safe");
+            Add("temp", "Arquivos temporários regeneráveis", "Regenerable temporary files", "safe");
+            Add("recycle", "Esvaziar a Lixeira (irreversível)", "Empty Recycle Bin (irreversible)", "high");
+            Add("update", "Cache do Windows Update", "Windows Update cache", "safe");
+            Add("delivery", "Delivery Optimization", "Delivery Optimization", "safe");
+            Add("thumbs", "Cache de miniaturas e ícones", "Thumbnail and icon cache", "safe");
+            Add("wer", "Relatórios de erro e dumps", "Error reports and dumps", "safe");
+            Add("logs", "Logs regeneráveis do Windows", "Regenerable Windows logs", "safe");
+            Add("recent", "Atalhos de arquivos recentes", "Recent-file shortcuts", "safe");
+            Add("font", "Cache de fontes", "Font cache", "safe");
+            Add("cleanmgr", "Limpeza de Disco (perfil temporário)", "Disk Cleanup (temporary profile)", "high");
+            Add("dismcleanup", "DISM Component Cleanup (demora)", "DISM Component Cleanup (slow)", "medium");
+            Add("browser", "Cache de navegadores (não apaga senhas)", "Browser caches (passwords kept)", "medium");
+            Add("gpu", "Cache de GPU / shaders", "GPU / shader cache", "safe");
+            Add("apps", "Caches Discord/Steam/Teams/Spotify", "Discord/Steam/Teams/Spotify caches", "medium");
+            Add("store", "Cache da Microsoft Store", "Microsoft Store cache", "safe");
+            Add("prefetch", "Prefetch", "Prefetch", "high");
+            Add("upgrade", "Windows.old / restos de upgrade", "Windows.old / upgrade leftovers", "high");
+            Add("trim", "Otimizar unidades (TRIM)", "Optimize drives (TRIM)", "safe");
+            Add("storage", "Storage Sense (sem Downloads)", "Storage Sense (Downloads kept)", "safe");
+            Add("tips", "Reduzir dicas e telemetria do Windows", "Reduce Windows tips/telemetry", "safe");
+            Add("powerhigh", "Plano de energia Alto Desempenho", "High Performance power plan", "high");
+            Add("powerbal", "Plano de energia Equilibrado", "Balanced power plan", "safe");
+            Add("visual", "Efeitos visuais para desempenho", "Visual effects for performance", "medium");
+            Add("bgapps", "Limitar apps em segundo plano", "Limit background apps", "safe");
+            Add("widgets", "Desativar Widgets", "Disable Widgets", "safe");
+            Add("searchweb", "Desativar busca web no Iniciar", "Disable web search in Start", "safe");
+            Add("gamebar", "Desativar Game Bar/DVR", "Disable Game Bar/DVR", "safe");
+            Add("gamemode", "Ativar Modo de Jogo", "Enable Game Mode", "safe");
+            Add("dns", "Limpar cache de DNS", "Flush DNS cache", "safe");
+            Add("arp", "Limpar tabela ARP", "Flush ARP table", "safe");
+            Add("netbios", "Limpar cache NetBIOS", "Flush NetBIOS cache", "safe");
+            Add("nettweak", "Ajustes TCP / multimedia", "TCP / multimedia tweaks", "medium");
+            Add("renewip", "Renovar endereço IP (rede pode cair)", "Renew IP address (network may drop)", "high");
+            Add("dnscloud", "Trocar DNS para Cloudflare 1.1.1.1", "Switch DNS to Cloudflare 1.1.1.1", "high");
+            Add("dnsgoogle", "Trocar DNS para Google 8.8.8.8", "Switch DNS to Google 8.8.8.8", "high");
+            Add("nagle", "Desativar algoritmo de Nagle", "Disable Nagle algorithm", "medium");
+            Add("winsock", "Reset Winsock (pede reinício)", "Reset Winsock (restart needed)", "high");
+            Add("tcpip", "Reset TCP/IP (pede reinício)", "Reset TCP/IP (restart needed)", "high");
+            Presets["safe"] = new[] { "restore", "temp", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "trim", "storage", "tips", "dns", "arp", "netbios" };
+            Presets["gamer"] = new[] { "restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "gpu", "apps", "trim", "tips", "gamebar", "gamemode", "bgapps", "widgets", "powerhigh", "dns", "arp", "nettweak", "nagle", "dnscloud" };
+            Presets["net"] = new[] { "restore", "dns", "arp", "netbios", "nettweak", "renewip", "dnscloud" };
+            Presets["full"] = new[] { "restore", "temp", "recycle", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "cleanmgr", "dismcleanup", "browser", "gpu", "apps", "store", "trim", "storage", "tips", "visual", "bgapps", "widgets", "searchweb", "gamebar", "gamemode", "dns", "arp", "netbios" };
+            Presets["notebook"] = new[] { "restore", "temp", "update", "delivery", "thumbs", "wer", "logs", "recent", "font", "trim", "storage", "tips", "powerbal", "bgapps", "widgets", "dns", "arp", "netbios" };
+        }
+
+        static void Add(string id, string pt, string en, string risk)
+        {
+            Map[id] = new ActionSpec { Id = id, Pt = pt, En = en, Risk = risk };
+        }
+
+        public static ActionSpec Get(string id)
+        {
+            ActionSpec spec;
+            return Map.TryGetValue(id, out spec) ? spec : new ActionSpec { Id = id, Pt = id, En = id, Risk = "safe" };
+        }
+
+        public static string[] IdsFor(string preset, string root)
+        {
+            try
+            {
+                var path = Path.Combine(root ?? "", "core", "presets.json");
+                if (File.Exists(path))
+                {
+                    var json = File.ReadAllText(path);
+                    var match = Regex.Match(json, "\"windows\"\\s*:\\s*\\{([\\s\\S]*?)\\n\\s*\\}", RegexOptions.Multiline);
+                    if (match.Success)
+                    {
+                        var inner = match.Groups[1].Value;
+                        var arr = Regex.Match(inner, "\"" + Regex.Escape(preset) + "\"\\s*:\\s*\\[([^\\]]+)\\]");
+                        if (arr.Success)
+                        {
+                            var ids = new List<string>();
+                            foreach (Match m in Regex.Matches(arr.Groups[1].Value, "\"([^\"]+)\""))
+                                ids.Add(m.Groups[1].Value);
+                            if (ids.Count > 0) return ids.ToArray();
+                        }
+                    }
+                }
+            }
+            catch { }
+            string[] fallback;
+            return Presets.TryGetValue(preset, out fallback) ? fallback : Presets["safe"];
+        }
+    }
+
+    static class ActionIdGuard
+    {
+        public static bool IsSafe(string id)
+        {
+            if (string.IsNullOrEmpty(id) || id.Length > 32) return false;
+            if (id[0] < 'a' || id[0] > 'z') return false;
+            for (int i = 1; i < id.Length; i++)
+            {
+                char c = id[i];
+                if ((c < 'a' || c > 'z') && (c < '0' || c > '9')) return false;
+            }
+            return true;
+        }
+
+        public static string Join(System.Collections.Generic.IEnumerable<string> ids)
+        {
+            var list = new List<string>();
+            if (ids == null) return "";
+            foreach (var id in ids)
+                if (IsSafe(id)) list.Add(id);
+            return string.Join(",", list.ToArray());
+        }
+    }
+
+    static class ActionEstimates
+    {
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        static extern int SHQueryRecycleBin(string root, ref ShQueryRbInfo info);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct ShQueryRbInfo
+        {
+            public int cbSize;
+            public long Size;
+            public long NumItems;
+        }
+
+        public static Dictionary<string, double> Measure(string[] ids)
+        {
+            var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            if (ids == null) return result;
+            var total = Stopwatch.StartNew();
+            foreach (var id in ids)
+            {
+                if (total.ElapsedMilliseconds > 3500) { result[id] = -1; continue; }
+                result[id] = MeasureId(id, 450);
+            }
+            return result;
+        }
+
+        public static double MeasureId(string id, int budgetMs)
+        {
+            if (string.Equals(id, "recycle", StringComparison.OrdinalIgnoreCase))
+                return RecycleMb();
+            double mb = 0;
+            foreach (var path in PathsFor(id))
+            {
+                if (Directory.Exists(path)) mb += BytesToMb(FolderBytes(path, budgetMs));
+                else if (File.Exists(path))
+                {
+                    try { mb += BytesToMb(new FileInfo(path).Length); } catch { }
+                }
+            }
+            if (string.Equals(id, "thumbs", StringComparison.OrdinalIgnoreCase))
+            {
+                var explorer = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Microsoft\Windows\Explorer");
+                try
+                {
+                    if (Directory.Exists(explorer))
+                        foreach (var file in Directory.GetFiles(explorer, "thumbcache_*.db"))
+                            mb += BytesToMb(new FileInfo(file).Length);
+                }
+                catch { }
+            }
+            if (string.Equals(id, "wer", StringComparison.OrdinalIgnoreCase))
+            {
+                var dump = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "MEMORY.DMP");
+                try { if (File.Exists(dump)) mb += BytesToMb(new FileInfo(dump).Length); } catch { }
+            }
+            return Math.Round(mb, 2);
+        }
+
+        public static bool IsSetting(string id)
+        {
+            switch ((id ?? "").ToLowerInvariant())
+            {
+                case "temp":
+                case "recycle":
+                case "update":
+                case "delivery":
+                case "thumbs":
+                case "wer":
+                case "logs":
+                case "recent":
+                case "font":
+                case "cleanmgr":
+                case "dismcleanup":
+                case "browser":
+                case "gpu":
+                case "apps":
+                case "store":
+                case "prefetch":
+                case "upgrade":
+                    return false;
+                default:
+                    return true;
+            }
+        }
+
+        public static string FormatHint(double mb, bool setting, bool english)
+        {
+            var culture = english ? CultureInfo.GetCultureInfo("en-US") : CultureInfo.GetCultureInfo("pt-BR");
+            if (mb < 0) return english ? "size ?" : "tam. ?";
+            if (mb < 0.05) return setting ? (english ? "setting" : "ajuste") : "~0 MB";
+            if (mb >= 1024) return "~" + (mb / 1024.0).ToString("0.0", culture) + " GB";
+            return "~" + mb.ToString(mb >= 10 ? "0" : "0.0", culture) + " MB";
+        }
+
+        public static string FormatTotal(double mb, bool unknown, int count, bool english)
+        {
+            string size = FormatHint(mb, mb < 0.05, english);
+            if (unknown) size += english ? " +" : " +";
+            if (english) return "Selected estimate: " + size + "  ·  " + count + " item(s)";
+            return "Estimativa dos marcados: " + size + "  ·  " + count + " itens";
+        }
+
+        static double RecycleMb()
+        {
+            try
+            {
+                var info = new ShQueryRbInfo();
+                info.cbSize = Marshal.SizeOf(typeof(ShQueryRbInfo));
+                if (SHQueryRecycleBin(null, ref info) == 0 && info.Size > 0)
+                    return BytesToMb(info.Size);
+            }
+            catch { }
+            return 0;
+        }
+
+        static double BytesToMb(long bytes) { return bytes <= 0 ? 0 : bytes / 1048576.0; }
+
+        static IEnumerable<string> PathsFor(string id)
+        {
+            string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string common = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            string drive = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SystemDrive")) ? "C:" : Environment.GetEnvironmentVariable("SystemDrive");
+            switch ((id ?? "").ToLowerInvariant())
+            {
+                case "temp": return new[] { Path.GetTempPath(), Path.Combine(local, "Temp"), Path.Combine(win, "Temp") };
+                case "update": return new[] { Path.Combine(win, @"SoftwareDistribution\Download") };
+                case "delivery": return new[] { Path.Combine(win, @"SoftwareDistribution\DeliveryOptimization"), Path.Combine(win, @"ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache") };
+                case "wer": return new[] { Path.Combine(common, @"Microsoft\Windows\WER"), Path.Combine(local, @"Microsoft\Windows\WER"), Path.Combine(win, "Minidump") };
+                case "logs": return new[] { Path.Combine(win, @"Logs\CBS"), Path.Combine(win, @"Logs\DISM"), Path.Combine(win, @"Logs\WindowsUpdate") };
+                case "prefetch": return new[] { Path.Combine(win, "Prefetch") };
+                case "recent": return new[] { Environment.GetFolderPath(Environment.SpecialFolder.Recent) };
+                case "gpu": return new[] { Path.Combine(local, "D3DSCache"), Path.Combine(local, @"NVIDIA\DXCache"), Path.Combine(local, @"NVIDIA\GLCache"), Path.Combine(local, @"AMD\DxCache"), Path.Combine(local, @"Intel\ShaderCache") };
+                case "browser": return new[] { Path.Combine(local, @"Google\Chrome\User Data\Default\Cache"), Path.Combine(local, @"Microsoft\Edge\User Data\Default\Cache"), Path.Combine(local, @"BraveSoftware\Brave-Browser\User Data\Default\Cache") };
+                case "apps": return new[] { Path.Combine(roaming, @"discord\Cache"), Path.Combine(local, @"Steam\htmlcache"), Path.Combine(roaming, @"Microsoft\Teams\Cache"), Path.Combine(roaming, @"Spotify\Storage") };
+                case "store": return new[] { Path.Combine(local, @"Microsoft\Windows\INetCache") };
+                case "upgrade": return new[] { Path.Combine(drive + @"\", "$Windows.~BT"), Path.Combine(drive + @"\", "$Windows.~WS"), Path.Combine(drive + @"\", "Windows.old") };
+                case "font": return new[] { Path.Combine(local, @"Microsoft\FontCache") };
+                default: return new string[0];
+            }
+        }
+
+        static long FolderBytes(string path, int budgetMs)
+        {
+            var sw = Stopwatch.StartNew();
+            long total = 0;
+            int files = 0;
+            var stack = new Stack<string>();
+            stack.Push(path);
+            while (stack.Count > 0)
+            {
+                if (sw.ElapsedMilliseconds > budgetMs || files > 18000) break;
+                string dir = stack.Pop();
+                try
+                {
+                    foreach (var file in Directory.EnumerateFiles(dir))
+                    {
+                        try { total += new FileInfo(file).Length; files++; } catch { }
+                        if ((files & 255) == 0 && sw.ElapsedMilliseconds > budgetMs) break;
+                    }
+                    foreach (var sub in Directory.EnumerateDirectories(dir))
+                    {
+                        try
+                        {
+                            if ((File.GetAttributes(sub) & FileAttributes.ReparsePoint) != 0) continue;
+                            stack.Push(sub);
+                        }
+                        catch { }
+                    }
+                }
+                catch { }
+            }
+            return total;
+        }
+    }
+
+    sealed class ActionOutcome
+    {
+        public string Id;
+        public string Status;
+        public string Detail;
+    }
+
+    sealed class ActionRunReport
+    {
+        public bool DryRun;
+        public string Outcome = "";
+        public string FreedMb = "0";
+        public string AfterGb = "—";
+        public string BeforeGb = "—";
+        public string Health = "—";
+        public string LogPath = "";
+        public readonly List<ActionOutcome> Items = new List<ActionOutcome>();
+    }
+
+    static class UserPrefs
+    {
+        public static string Dir()
+        {
+            var d = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PC-Otimizador");
+            Directory.CreateDirectory(d);
+            return d;
+        }
+
+        static string SelFile { get { return Path.Combine(Dir(), "selections.txt"); } }
+        static string HealthFile { get { return Path.Combine(Dir(), "health.csv"); } }
+        static string LastRunFile { get { return Path.Combine(Dir(), "last-authorized.txt"); } }
+
+        public static HashSet<string> LoadSelection(string preset)
+        {
+            try
+            {
+                if (!File.Exists(SelFile)) return null;
+                foreach (var raw in File.ReadAllLines(SelFile))
+                {
+                    int eq = raw.IndexOf('=');
+                    if (eq <= 0) continue;
+                    if (!string.Equals(raw.Substring(0, eq).Trim(), preset, StringComparison.OrdinalIgnoreCase)) continue;
+                    var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var id in raw.Substring(eq + 1).Split(','))
+                    {
+                        string t = id.Trim();
+                        if (t.Length > 0) ids.Add(t);
+                    }
+                    return ids;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        public static void SaveSelection(string preset, IList<string> ids)
+        {
+            try
+            {
+                var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (File.Exists(SelFile))
+                {
+                    foreach (var raw in File.ReadAllLines(SelFile))
+                    {
+                        int eq = raw.IndexOf('=');
+                        if (eq > 0) map[raw.Substring(0, eq).Trim()] = raw.Substring(eq + 1);
+                    }
+                }
+                map[preset] = string.Join(",", ids == null ? new string[0] : new List<string>(ids).ToArray());
+                var lines = new List<string>();
+                foreach (var kv in map) lines.Add(kv.Key + "=" + kv.Value);
+                File.WriteAllLines(SelFile, lines.ToArray(), Encoding.UTF8);
+                File.WriteAllText(LastRunFile, map[preset], Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        public static string[] LoadLastAuthorized(string[] fallback)
+        {
+            try
+            {
+                if (File.Exists(LastRunFile))
+                {
+                    var ids = new List<string>();
+                    foreach (var id in File.ReadAllText(LastRunFile).Split(','))
+                    {
+                        string t = id.Trim();
+                        if (t.Length > 0) ids.Add(t);
+                    }
+                    if (ids.Count > 0) return ids.ToArray();
+                }
+            }
+            catch { }
+            return fallback;
+        }
+
+        public static void AppendHealth(int score)
+        {
+            if (score < 0) return;
+            try { File.AppendAllText(HealthFile, DateTime.UtcNow.ToString("o") + "," + score + Environment.NewLine, Encoding.UTF8); } catch { }
+        }
+
+        public static List<int> RecentHealth(int n)
+        {
+            var values = new List<int>();
+            try
+            {
+                if (!File.Exists(HealthFile)) return values;
+                string[] lines = File.ReadAllLines(HealthFile);
+                int start = Math.Max(0, lines.Length - Math.Max(1, n));
+                for (int i = start; i < lines.Length; i++)
+                {
+                    var parts = lines[i].Split(',');
+                    int score;
+                    if (parts.Length >= 2 && int.TryParse(parts[parts.Length - 1].Trim(), out score)) values.Add(score);
+                }
+            }
+            catch { }
+            return values;
+        }
+
+        public static string HealthTrend(int current, bool english)
+        {
+            var hist = RecentHealth(8);
+            if (current > 0 && (hist.Count == 0 || hist[hist.Count - 1] != current)) hist.Add(current);
+            if (hist.Count == 0) return english ? "Health\n—/100" : "Saúde\n—/100";
+            int last = hist[hist.Count - 1];
+            if (hist.Count == 1) return (english ? "Health\n" : "Saúde\n") + last + "/100";
+            int prev = hist[hist.Count - 2];
+            int delta = last - prev;
+            string arrow = delta > 0 ? ("+" + delta) : delta.ToString();
+            return (english ? "Health\n" : "Saúde\n") + prev + " → " + last + "/100  (" + arrow + ")";
+        }
+
+        public static bool ExeIsSigned(string path)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path) || !File.Exists(path)) return false;
+                var cert = new X509Certificate2(path);
+                return cert != null && !string.IsNullOrEmpty(cert.Subject);
+            }
+            catch { return false; }
+        }
+
+        public static bool TweaksPending()
+        {
+            return File.Exists(Path.Combine(Dir(), "last-tweaks.json"));
+        }
+    }
+
+    sealed class StartupEntry
+    {
+        public string Hive;
+        public string Name;
+        public string Command;
+        public bool Enabled;
+        public bool OriginallyEnabled;
+        public string Key { get { return Hive + "|" + Name; } }
+    }
+
+    static class StartupInventory
+    {
+        const string DisabledKey = @"Software\PC-Otimizador\DisabledStartup";
+
+        public static List<StartupEntry> List()
+        {
+            var items = new List<StartupEntry>();
+            AddHive(items, Microsoft.Win32.Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Run", "HKCU", true);
+            AddHive(items, Microsoft.Win32.Registry.LocalMachine, @"Software\Microsoft\Windows\CurrentVersion\Run", "HKLM", true);
+            try
+            {
+                using (var disabled = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(DisabledKey))
+                {
+                    if (disabled != null)
+                    {
+                        foreach (var name in disabled.GetValueNames())
+                        {
+                            string raw = disabled.GetValue(name) as string;
+                            if (string.IsNullOrEmpty(raw)) continue;
+                            var p = raw.Split(new[] { '\t' }, 3);
+                            if (p.Length < 3) continue;
+                            var restored = new StartupEntry { Hive = p[0], Name = p[1], Command = p[2], Enabled = false, OriginallyEnabled = false };
+                            if (!IsSafeEntry(restored)) continue;
+                            items.Add(restored);
+                        }
+                    }
+                }
+            }
+            catch { }
+            items.Sort(delegate(StartupEntry a, StartupEntry b) { return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase); });
+            return items;
+        }
+
+        static void AddHive(List<StartupEntry> items, Microsoft.Win32.RegistryKey root, string path, string hive, bool enabled)
+        {
+            try
+            {
+                using (var key = root.OpenSubKey(path))
+                {
+                    if (key == null) return;
+                    foreach (var name in key.GetValueNames())
+                    {
+                        if (string.IsNullOrEmpty(name)) continue;
+                        var entry = new StartupEntry
+                        {
+                            Hive = hive,
+                            Name = name,
+                            Command = Convert.ToString(key.GetValue(name)),
+                            Enabled = enabled,
+                            OriginallyEnabled = enabled
+                        };
+                        if (!IsSafeEntry(entry)) continue;
+                        items.Add(entry);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static void Apply(List<StartupEntry> entries)
+        {
+            foreach (var e in entries)
+            {
+                if (e == null || !IsSafeEntry(e)) continue;
+                if (e.Enabled == e.OriginallyEnabled) continue;
+                if (e.Enabled) Enable(e); else Disable(e);
+            }
+        }
+
+        static bool IsSafeHive(string hive)
+        {
+            return string.Equals(hive, "HKCU", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(hive, "HKLM", StringComparison.OrdinalIgnoreCase);
+        }
+
+        static bool IsSafeName(string name)
+        {
+            if (string.IsNullOrEmpty(name) || name.Length > 120) return false;
+            return name.IndexOfAny(new[] { '\\', '/', '\t', '\r', '\n' }) < 0;
+        }
+
+        static bool IsSafeCommand(string command)
+        {
+            if (command == null || command.Length > 2048) return false;
+            return command.IndexOfAny(new[] { '\r', '\n' }) < 0;
+        }
+
+        static bool IsSafeEntry(StartupEntry e)
+        {
+            return e != null && IsSafeHive(e.Hive) && IsSafeName(e.Name) && IsSafeCommand(e.Command ?? "");
+        }
+
+        static Microsoft.Win32.RegistryKey HiveRoot(string hive)
+        {
+            if (string.Equals(hive, "HKLM", StringComparison.OrdinalIgnoreCase))
+                return Microsoft.Win32.Registry.LocalMachine;
+            if (string.Equals(hive, "HKCU", StringComparison.OrdinalIgnoreCase))
+                return Microsoft.Win32.Registry.CurrentUser;
+            return null;
+        }
+
+        static void Disable(StartupEntry e)
+        {
+            var root = HiveRoot(e.Hive);
+            if (root == null) return;
+            using (var key = root.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
+            {
+                if (key != null) key.DeleteValue(e.Name, false);
+            }
+            using (var disabled = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(DisabledKey))
+            {
+                if (disabled != null) disabled.SetValue(e.Key, e.Hive + "\t" + e.Name + "\t" + e.Command);
+            }
+        }
+
+        static void Enable(StartupEntry e)
+        {
+            var root = HiveRoot(e.Hive);
+            if (root == null) return;
+            using (var key = root.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"))
+            {
+                if (key != null) key.SetValue(e.Name, e.Command ?? "");
+            }
+            using (var disabled = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(DisabledKey, true))
+            {
+                if (disabled != null) disabled.DeleteValue(e.Key, false);
+            }
+        }
+    }
+
+    sealed class ConsentDialog : Form
+    {
+        readonly CheckedListBox _list;
+        readonly CheckBox _agree;
+        readonly Button _run;
+        readonly Label _total;
+        readonly bool _english;
+        public readonly List<string> SelectedIds = new List<string>();
+
+        public ConsentDialog(string preset, string title, string explain, bool highRisk, bool english, string[] ids, Dictionary<string, double> estimates, HashSet<string> remembered)
+        {
+            _english = english;
+            Text = english ? ("Review and consent · " + preset) : ("Revisar e consentir · " + preset);
+            StartPosition = FormStartPosition.CenterParent;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = false;
+            Size = new Size(700, 660);
+            BackColor = Color.FromArgb(6, 10, 16);
+            ForeColor = Color.FromArgb(241, 245, 249);
+            Font = new Font("Segoe UI", 9.5f);
+
+            var header = new Label
+            {
+                Text = title,
+                Font = new Font("Segoe UI Semibold", 16f),
+                ForeColor = Color.FromArgb(0, 229, 214),
+                Location = new Point(24, 18),
+                Size = new Size(580, 32)
+            };
+            Controls.Add(header);
+
+            var summary = new Label
+            {
+                Text = explain,
+                Location = new Point(24, 52),
+                Size = new Size(640, 58),
+                ForeColor = Color.FromArgb(200, 210, 220)
+            };
+            Controls.Add(summary);
+
+            var protect = new Label
+            {
+                Text = english
+                    ? "Never deleted: Documents, Pictures, Videos, Music, Desktop, Downloads and OneDrive."
+                    : "Nunca apagamos: Documentos, Fotos, Vídeos, Música, Desktop, Downloads e OneDrive.",
+                Location = new Point(24, summary.Bottom + 4),
+                Size = new Size(580, 36),
+                ForeColor = Color.FromArgb(52, 211, 153)
+            };
+            Controls.Add(protect);
+
+            var hint = new Label
+            {
+                Text = english ? "Uncheck anything you do not authorize:" : "Desmarque o que você NÃO autoriza:",
+                Location = new Point(24, protect.Bottom + 2),
+                Size = new Size(580, 22),
+                ForeColor = Color.FromArgb(158, 169, 184)
+            };
+            Controls.Add(hint);
+
+            _list = new CheckedListBox
+            {
+                Location = new Point(24, hint.Bottom + 4),
+                Size = new Size(640, 248),
+                BackColor = Color.FromArgb(10, 20, 31),
+                ForeColor = Color.FromArgb(241, 245, 249),
+                BorderStyle = BorderStyle.FixedSingle,
+                CheckOnClick = true,
+                IntegralHeight = false,
+                HorizontalScrollbar = true
+            };
+            foreach (var id in ids)
+            {
+                var spec = ActionCatalog.Get(id);
+                double mb = 0;
+                if (estimates == null || !estimates.TryGetValue(id, out mb)) mb = ActionEstimates.IsSetting(id) ? 0 : -1;
+                string badge = spec.IsHigh ? (english ? "RISK" : "RISCO") : spec.IsMedium ? (english ? "CAUTION" : "ATENÇÃO") : (english ? "SAFE" : "SEGURO");
+                string sizeHint = ActionEstimates.FormatHint(mb, ActionEstimates.IsSetting(id), english);
+                bool on = remembered == null || remembered.Contains(id);
+                _list.Items.Add(new ActionRow(spec, mb, spec.Label(english) + "   [" + badge + "]   " + sizeHint), on);
+            }
+            _list.ItemCheck += (s, e) => BeginInvoke(new Action(UpdateRunEnabled));
+            Controls.Add(_list);
+
+            _total = new Label
+            {
+                Location = new Point(24, _list.Bottom + 6),
+                Size = new Size(640, 22),
+                ForeColor = Color.FromArgb(49, 205, 245)
+            };
+            Controls.Add(_total);
+
+            int y = _total.Bottom + 8;
+            if (highRisk)
+            {
+                var warn = new Label
+                {
+                    Text = english
+                        ? "This profile can change DNS, IP or power settings. Review RISK items carefully."
+                        : "Este perfil pode alterar DNS, IP ou energia. Revise com cuidado os itens de RISCO.",
+                    Location = new Point(24, y),
+                    Size = new Size(640, 36),
+                    ForeColor = Color.FromArgb(251, 191, 36)
+                };
+                Controls.Add(warn);
+                y = warn.Bottom + 6;
+            }
+
+            _agree = new CheckBox
+            {
+                Text = english
+                    ? "I have read the list and authorize only the checked actions."
+                    : "Li a lista e autorizo somente as ações marcadas.",
+                Location = new Point(24, y),
+                Size = new Size(640, 28),
+                ForeColor = Color.FromArgb(241, 245, 249),
+                AutoSize = false
+            };
+            _agree.CheckedChanged += (s, e) => UpdateRunEnabled();
+            Controls.Add(_agree);
+
+            var cancel = new Button
+            {
+                Text = english ? "Decline" : "Recusar",
+                Location = new Point(384, y + 40),
+                Size = new Size(130, 36),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(30, 41, 59),
+                ForeColor = Color.White,
+                DialogResult = DialogResult.Cancel
+            };
+            cancel.FlatAppearance.BorderSize = 0;
+            Controls.Add(cancel);
+            CancelButton = cancel;
+
+            _run = new Button
+            {
+                Text = english ? "I consent — run" : "Concordo — executar",
+                Location = new Point(524, y + 40),
+                Size = new Size(150, 36),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(0, 120, 110),
+                ForeColor = Color.White,
+                Enabled = false
+            };
+            _run.FlatAppearance.BorderSize = 0;
+            _run.Click += (s, e) =>
+            {
+                SelectedIds.Clear();
+                for (int i = 0; i < _list.Items.Count; i++)
+                    if (_list.GetItemChecked(i))
+                        SelectedIds.Add(((ActionRow)_list.Items[i]).Spec.Id);
+                if (SelectedIds.Count == 0) return;
+                DialogResult = DialogResult.OK;
+                Close();
+            };
+            Controls.Add(_run);
+            AcceptButton = _run;
+            ClientSize = new Size(688, Math.Max(580, y + 96));
+            UpdateRunEnabled();
+        }
+
+        void UpdateRunEnabled()
+        {
+            int n = 0;
+            double sum = 0;
+            bool unknown = false;
+            for (int i = 0; i < _list.Items.Count; i++)
+            {
+                if (!_list.GetItemChecked(i)) continue;
+                n++;
+                var row = (ActionRow)_list.Items[i];
+                if (row.Mb < 0) unknown = true;
+                else if (row.Mb >= 0.05) sum += row.Mb;
+            }
+            _total.Text = ActionEstimates.FormatTotal(sum, unknown, n, _english);
+            _run.Enabled = _agree.Checked && n > 0;
+        }
+
+        sealed class ActionRow
+        {
+            public readonly ActionSpec Spec;
+            public readonly double Mb;
+            readonly string _text;
+            public ActionRow(ActionSpec spec, double mb, string text) { Spec = spec; Mb = mb; _text = text; }
+            public override string ToString() { return _text; }
+        }
+    }
+
+    sealed class ScheduleDialog : Form
+    {
+        readonly ComboBox _day;
+        readonly ComboBox _time;
+        readonly CheckedListBox _list;
+        readonly CheckBox _agree;
+        readonly Button _run;
+        public readonly List<string> SelectedIds = new List<string>();
+        public string Day
+        {
+            get { return new[] { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" }[_day.SelectedIndex < 0 ? 0 : _day.SelectedIndex]; }
+        }
+        public string TimeOfDay { get { return _time.Text; } }
+
+        public ScheduleDialog(bool english, string[] ids, HashSet<string> remembered)
+        {
+            Text = english ? "Schedule weekly cleanup" : "Agendar limpeza semanal";
+            StartPosition = FormStartPosition.CenterParent;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false; MinimizeBox = false; ShowInTaskbar = false;
+            BackColor = Color.FromArgb(6, 10, 16);
+            ForeColor = Color.FromArgb(241, 245, 249);
+            Font = new Font("Segoe UI", 9.5f);
+            Size = new Size(700, 620);
+
+            Controls.Add(new Label
+            {
+                Text = english ? "Repeat only the actions you authorize" : "Repetir somente as ações que você autorizar",
+                Font = new Font("Segoe UI Semibold", 14f),
+                ForeColor = Color.FromArgb(0, 229, 214),
+                Location = new Point(24, 16),
+                Size = new Size(640, 28)
+            });
+
+            Controls.Add(new Label { Text = english ? "Day" : "Dia", Location = new Point(24, 52), Size = new Size(80, 22), ForeColor = Color.FromArgb(158, 169, 184) });
+            _day = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Location = new Point(110, 48),
+                Size = new Size(200, 28),
+                BackColor = Color.FromArgb(10, 20, 31),
+                ForeColor = Color.FromArgb(241, 245, 249)
+            };
+            if (english) _day.Items.AddRange(new object[] { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" });
+            else _day.Items.AddRange(new object[] { "Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado" });
+            _day.SelectedIndex = 0;
+            Controls.Add(_day);
+
+            Controls.Add(new Label { Text = english ? "Time" : "Hora", Location = new Point(340, 52), Size = new Size(80, 22), ForeColor = Color.FromArgb(158, 169, 184) });
+            _time = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Location = new Point(420, 48),
+                Size = new Size(120, 28),
+                BackColor = Color.FromArgb(10, 20, 31),
+                ForeColor = Color.FromArgb(241, 245, 249)
+            };
+            _time.Items.AddRange(new object[] { "08:00", "10:00", "12:00", "18:00", "21:00" });
+            _time.SelectedIndex = 1;
+            Controls.Add(_time);
+
+            _list = new CheckedListBox
+            {
+                Location = new Point(24, 90),
+                Size = new Size(640, 290),
+                BackColor = Color.FromArgb(10, 20, 31),
+                ForeColor = Color.FromArgb(241, 245, 249),
+                BorderStyle = BorderStyle.FixedSingle,
+                CheckOnClick = true,
+                IntegralHeight = false
+            };
+            var idList = new List<string>();
+            foreach (var id in ids)
+            {
+                var spec = ActionCatalog.Get(id);
+                bool on = remembered == null || remembered.Contains(id);
+                _list.Items.Add(spec.Label(english) + "   [" + spec.Id + "]", on);
+                idList.Add(id);
+            }
+            Controls.Add(_list);
+
+            _agree = new CheckBox
+            {
+                Text = english ? "I authorize this weekly schedule with the checked actions only." : "Autorizo esta agenda semanal somente com as ações marcadas.",
+                Location = new Point(24, 390),
+                Size = new Size(640, 28),
+                ForeColor = Color.FromArgb(241, 245, 249)
+            };
+            Controls.Add(_agree);
+
+            var cancel = new Button
+            {
+                Text = english ? "Decline" : "Recusar",
+                Location = new Point(384, 430),
+                Size = new Size(130, 36),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(30, 41, 59),
+                ForeColor = Color.White,
+                DialogResult = DialogResult.Cancel
+            };
+            cancel.FlatAppearance.BorderSize = 0;
+            Controls.Add(cancel);
+            CancelButton = cancel;
+
+            _run = new Button
+            {
+                Text = english ? "I consent — schedule" : "Concordo — agendar",
+                Location = new Point(524, 430),
+                Size = new Size(150, 36),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(0, 120, 110),
+                ForeColor = Color.White,
+                Enabled = false
+            };
+            _run.FlatAppearance.BorderSize = 0;
+            _agree.CheckedChanged += (s, e) => UpdateEnabled(idList);
+            _list.ItemCheck += (s, e) => BeginInvoke(new Action(delegate { UpdateEnabled(idList); }));
+            _run.Click += (s, e) =>
+            {
+                SelectedIds.Clear();
+                for (int i = 0; i < _list.Items.Count; i++)
+                    if (_list.GetItemChecked(i)) SelectedIds.Add(idList[i]);
+                if (SelectedIds.Count == 0) return;
+                DialogResult = DialogResult.OK;
+                Close();
+            };
+            Controls.Add(_run);
+            ClientSize = new Size(688, 486);
+            UpdateEnabled(idList);
+        }
+
+        void UpdateEnabled(List<string> ids)
+        {
+            int n = 0;
+            for (int i = 0; i < _list.Items.Count; i++)
+                if (_list.GetItemChecked(i)) n++;
+            _run.Enabled = _agree.Checked && n > 0;
+        }
+    }
+
+    sealed class ResultDialog : Form
+    {
+        public ResultDialog(ActionRunReport report, bool english, string logsDir)
+        {
+            bool dry = report != null && report.DryRun;
+            string outcome = report != null ? (report.Outcome ?? "") : "";
+            bool failed = outcome.IndexOf("FAIL", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool cancelled = outcome.IndexOf("CANCEL", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool blocked = outcome.IndexOf("BLOCK", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            Text = english ? "Run summary" : "Resumo da execução";
+            StartPosition = FormStartPosition.CenterParent;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = false;
+            BackColor = Color.FromArgb(6, 10, 16);
+            ForeColor = Color.FromArgb(241, 245, 249);
+            Font = new Font("Segoe UI", 9.5f);
+            Size = new Size(700, 620);
+
+            string headline;
+            Color headlineColor = Color.FromArgb(0, 229, 214);
+            if (cancelled)
+            {
+                headline = english ? "Cancelled" : "Cancelado";
+                headlineColor = Color.FromArgb(251, 191, 36);
+            }
+            else if (blocked)
+            {
+                headline = english ? "Blocked by risk policy" : "Bloqueado pela política de risco";
+                headlineColor = Color.FromArgb(248, 113, 113);
+            }
+            else if (failed)
+            {
+                headline = english ? "Finished with failures" : "Concluído com falhas";
+                headlineColor = Color.FromArgb(248, 113, 113);
+            }
+            else if (dry)
+                headline = english ? "Simulation complete — nothing was deleted" : "Simulação concluída — nada foi apagado";
+            else
+                headline = english ? "Completed" : "Concluído";
+
+            Controls.Add(new Label
+            {
+                Text = headline,
+                Font = new Font("Segoe UI Semibold", 16f),
+                ForeColor = headlineColor,
+                Location = new Point(24, 18),
+                Size = new Size(640, 32)
+            });
+
+            int ok = 0, partial = 0, skipped = 0, fail = 0, block = 0;
+            if (report != null)
+            {
+                foreach (var item in report.Items)
+                {
+                    string st = item.Status ?? "";
+                    if (st.Equals("SUCCESS", StringComparison.OrdinalIgnoreCase)) ok++;
+                    else if (st.Equals("PARTIAL", StringComparison.OrdinalIgnoreCase)) partial++;
+                    else if (st.Equals("FAILED", StringComparison.OrdinalIgnoreCase)) fail++;
+                    else if (st.Equals("BLOCKED", StringComparison.OrdinalIgnoreCase)) block++;
+                    else skipped++;
+                }
+            }
+
+            string space = dry
+                ? (english ? "Estimated ~" : "Estimado ~") + (report != null ? report.FreedMb : "0") + " MB"
+                : (english ? "Freed ~" : "Liberado ~") + (report != null ? report.FreedMb : "0") + " MB";
+            string disk = english
+                ? "Disk " + (report != null ? report.BeforeGb : "—") + " GB → " + (report != null ? report.AfterGb : "—") + " GB"
+                : "Disco " + (report != null ? report.BeforeGb : "—") + " GB → " + (report != null ? report.AfterGb : "—") + " GB";
+            string health = (english ? "Health " : "Saúde ") + (report != null ? report.Health : "—") + "/100";
+            string counts = english
+                ? ok + " ok  ·  " + partial + " partial  ·  " + skipped + " skipped  ·  " + fail + " failed"
+                : ok + " ok  ·  " + partial + " parciais  ·  " + skipped + " não aplicadas  ·  " + fail + " falhas";
+            if (block > 0) counts += english ? "  ·  " + block + " blocked" : "  ·  " + block + " bloqueadas";
+
+            Controls.Add(new Label
+            {
+                Text = space + "\n" + disk + "  ·  " + health + "\n" + counts,
+                Location = new Point(24, 54),
+                Size = new Size(640, 64),
+                ForeColor = Color.FromArgb(200, 210, 220)
+            });
+
+            Controls.Add(new Label
+            {
+                Text = english ? "Actions:" : "Ações:",
+                Location = new Point(24, 122),
+                Size = new Size(640, 20),
+                ForeColor = Color.FromArgb(158, 169, 184)
+            });
+
+            var list = new ListBox
+            {
+                Location = new Point(24, 144),
+                Size = new Size(640, 310),
+                BackColor = Color.FromArgb(10, 20, 31),
+                ForeColor = Color.FromArgb(241, 245, 249),
+                BorderStyle = BorderStyle.FixedSingle,
+                IntegralHeight = false,
+                HorizontalScrollbar = true
+            };
+            if (report != null)
+            {
+                foreach (var item in report.Items)
+                {
+                    var spec = ActionCatalog.Get(item.Id);
+                    string status = StatusLabel(item.Status, item.Detail, dry, english);
+                    string detail = string.IsNullOrEmpty(item.Detail) ? "" : " — " + item.Detail;
+                    list.Items.Add(status + "  " + spec.Label(english) + detail);
+                }
+            }
+            if (list.Items.Count == 0)
+                list.Items.Add(english ? "No per-action results were reported." : "Nenhum resultado por ação foi informado.");
+            Controls.Add(list);
+
+            var logPath = report != null ? report.LogPath : "";
+            Controls.Add(new Label
+            {
+                Text = english
+                    ? "Documents, Pictures, Downloads and OneDrive were not targets."
+                    : "Documentos, Fotos, Downloads e OneDrive não foram alvos.",
+                Location = new Point(24, 462),
+                Size = new Size(640, 22),
+                ForeColor = Color.FromArgb(52, 211, 153)
+            });
+
+            var openLog = new Button
+            {
+                Text = english ? "Open log" : "Abrir log",
+                Location = new Point(384, 500),
+                Size = new Size(130, 36),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(30, 41, 59),
+                ForeColor = Color.White,
+                Enabled = true
+            };
+            openLog.FlatAppearance.BorderSize = 0;
+            string folder = logsDir;
+            openLog.Click += (s, e) =>
+            {
+                try
+                {
+                    if (!string.IsNullOrEmpty(logPath) && File.Exists(logPath))
+                        Process.Start("explorer.exe", "/select,\"" + logPath + "\"");
+                    else if (!string.IsNullOrEmpty(folder) && Directory.Exists(folder))
+                        Process.Start("explorer.exe", folder);
+                }
+                catch { }
+            };
+            Controls.Add(openLog);
+
+            var close = new Button
+            {
+                Text = english ? "Close" : "Fechar",
+                Location = new Point(524, 500),
+                Size = new Size(150, 36),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(0, 120, 110),
+                ForeColor = Color.White,
+                DialogResult = DialogResult.OK
+            };
+            close.FlatAppearance.BorderSize = 0;
+            Controls.Add(close);
+            AcceptButton = close;
+            CancelButton = close;
+            ClientSize = new Size(688, 556);
+        }
+
+        static string StatusLabel(string status, string detail, bool dry, bool english)
+        {
+            if (dry || (!string.IsNullOrEmpty(detail) && detail.IndexOf("Simul", StringComparison.OrdinalIgnoreCase) >= 0))
+                return english ? "[SIM]" : "[SIM]";
+            switch ((status ?? "").ToUpperInvariant())
+            {
+                case "SUCCESS": return english ? "[OK]" : "[OK]";
+                case "PARTIAL": return english ? "[PARTIAL]" : "[PARCIAL]";
+                case "FAILED": return english ? "[FAIL]" : "[FALHA]";
+                case "BLOCKED": return english ? "[BLOCKED]" : "[BLOQUEADA]";
+                case "SKIPPED": return english ? "[SKIPPED]" : "[NÃO APLICADA]";
+                default: return "[" + (status ?? "?") + "]";
+            }
         }
     }
 
@@ -557,7 +1686,6 @@ namespace PCOtimizador
         Panel _content;
         Panel _chrome;
         GlowProgress _bar;
-        TogglePill _dry;
         Button _btnCancel;
         Label _pctLabel;
         Label _taskLabel;
@@ -574,6 +1702,12 @@ namespace PCOtimizador
         TableLayoutPanel _presetGrid;
         FlowLayoutPanel _toolsFlow;
         FlowLayoutPanel _deviceFlow;
+        CheckedListBox _startupList;
+        Button _startupApply;
+        Button _startupRefresh;
+        List<StartupEntry> _startupItems = new List<StartupEntry>();
+        Label _signTitle;
+        Label _signText;
         Button _deviceRefresh;
         readonly Dictionary<string, Label> _deviceValues = new Dictionary<string, Label>(StringComparer.OrdinalIgnoreCase);
         Panel _helpScroll;
@@ -581,6 +1715,9 @@ namespace PCOtimizador
         Label _helpLabel;
         Label _safetyTitle;
         Label _safetyText;
+        Label _telemetryTitle;
+        Label _telemetryText;
+        TogglePill _telemetryToggle;
         Label _languageCaption;
         Button _languagePtButton;
         Button _languageEnButton;
@@ -611,6 +1748,8 @@ namespace PCOtimizador
         string _diskTot = "—";
         bool _deviceLoaded;
         int _deviceRequestId;
+        bool _showRunSummary;
+        ActionRunReport _runReport;
 
         static readonly Color Bg = Color.FromArgb(4, 8, 14);
         static readonly Color PanelBg = Color.FromArgb(6, 13, 22);
@@ -729,7 +1868,7 @@ namespace PCOtimizador
             if (_languageCaption != null) _languageCaption.Text = T("language.label");
             if (_brandLabel != null) _brandLabel.Text = T("brand");
             if (_protectLabel != null) _protectLabel.Text = T("nav.protection");
-            if (_dry != null) _dry.Text = T("dryrun");
+            if (_telemetryToggle != null) _telemetryToggle.Text = T(_telemetryToggle.Checked ? "settings.telemetry.on" : "settings.telemetry.off");
             if (_btnCancel != null) _btnCancel.Text = T("cancel");
             if (_statusLabel != null && !string.IsNullOrWhiteSpace(_statusLabel.Text)) _statusLabel.Text = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + T("status.activity");
             if (_taskLabel != null && !_running) _taskLabel.Text = T("task.ready");
@@ -801,13 +1940,9 @@ namespace PCOtimizador
             var opt = Register(new Label { Font = titleFont, ForeColor = Accent, Location = new Point(34 + pcSize.Width + 10, 16), Size = optSize, AutoSize = false }, "title.optimizer");
             var pro = new Label { Text = "PRO", Font = titleFont, ForeColor = TextMain, Location = new Point(34 + pcSize.Width + 10 + optSize.Width + 15, 16), Size = proSize, AutoSize = false };
             _chrome.Controls.Add(pc); _chrome.Controls.Add(opt); _chrome.Controls.Add(pro);
-            _heroSub = new Label { Text = T("header.dashboard"), Location = new Point(38, 70), Size = new Size(520, 20), AutoSize = false, AutoEllipsis = true, ForeColor = Muted, Font = new Font("Segoe UI", 9.5f) };
+            _heroSub = new Label { Text = T("header.dashboard"), Location = new Point(38, 70), Size = new Size(720, 20), AutoSize = false, AutoEllipsis = true, ForeColor = Muted, Font = new Font("Segoe UI", 9.5f) };
             _chrome.Controls.Add(_heroSub);
             WireDrag(_chrome); WireDrag(pc); WireDrag(opt); WireDrag(pro);
-
-            _dry = new TogglePill { Text = T("dryrun"), Location = new Point(0, 20), Size = new Size(132, 32), Anchor = AnchorStyles.Top | AnchorStyles.Right, TabStop = true, Font = new Font("Segoe UI Semibold", 8f) };
-            _chrome.Controls.Add(_dry);
-            Tip(_dry, "Simula a limpeza sem apagar nada. Ideal na primeira vez.");
 
             var min = ChromeButton("—");
             var max = ChromeButton("□");
@@ -822,7 +1957,7 @@ namespace PCOtimizador
                 close.Location = new Point(right - close.Width, 16);
                 max.Location = new Point(close.Left - max.Width - 4, 16);
                 min.Location = new Point(max.Left - min.Width - 4, 16);
-                _dry.Location = new Point(Math.Max(pro.Right + 18, right - _dry.Width), 62);
+                _heroSub.Width = Math.Max(220, min.Left - _heroSub.Left - 16);
             };
         }
 
@@ -939,10 +2074,15 @@ namespace PCOtimizador
                 // its gutter in the width calculation so the card never clips
                 // horizontally when the window is compact.
                 int helpWidth = Math.Max(260, helpPage.ClientSize.Width - 42);
-                _helpBox.Bounds = new Rectangle(12, 12, helpWidth, 360);
+                _helpBox.Bounds = new Rectangle(12, 12, helpWidth, 560);
                 _helpLabel.Bounds = new Rectangle(26, 24, Math.Max(208, helpWidth - 52), 150);
                 if (_safetyTitle != null) _safetyTitle.Bounds = new Rectangle(26, 190, Math.Max(208, helpWidth - 52), 24);
-                if (_safetyText != null) _safetyText.Bounds = new Rectangle(26, 216, Math.Max(208, helpWidth - 52), 100);
+                if (_safetyText != null) _safetyText.Bounds = new Rectangle(26, 216, Math.Max(208, helpWidth - 52), 80);
+                if (_telemetryTitle != null) _telemetryTitle.Bounds = new Rectangle(26, 304, Math.Max(150, helpWidth - 190), 24);
+                if (_telemetryText != null) _telemetryText.Bounds = new Rectangle(26, 332, Math.Max(208, helpWidth - 190), 64);
+                if (_telemetryToggle != null) _telemetryToggle.Bounds = new Rectangle(Math.Max(26, helpWidth - 154), 314, 128, 32);
+                if (_signTitle != null) _signTitle.Bounds = new Rectangle(26, 410, Math.Max(208, helpWidth - 52), 24);
+                if (_signText != null) _signText.Bounds = new Rectangle(26, 436, Math.Max(208, helpWidth - 52), 90);
             }
             if (_deviceRefresh != null && _pages.ContainsKey("dispositivo"))
             {
@@ -950,6 +2090,22 @@ namespace PCOtimizador
                 _deviceRefresh.Bounds = new Rectangle(Math.Max(20, devicePage.ClientSize.Width - 178), 18, 160, 32);
                 foreach (Control child in devicePage.Controls)
                     if (child is Label && child.Top == 18) child.Width = Math.Max(160, devicePage.ClientSize.Width - 220);
+            }
+            if (_startupList != null && _pages.ContainsKey("inicializacao"))
+            {
+                var startPage = _pages["inicializacao"];
+                int pw = startPage.ClientSize.Width;
+                int ph = startPage.ClientSize.Height;
+                if (_startupRefresh != null) _startupRefresh.Bounds = new Rectangle(Math.Max(20, pw - 178), 18, 160, 32);
+                _startupList.Bounds = new Rectangle(10, 92, Math.Max(200, pw - 20), Math.Max(80, ph - 150));
+                if (_startupApply != null) _startupApply.Bounds = new Rectangle(10, Math.Max(120, ph - 48), 210, 36);
+                foreach (Control child in startPage.Controls)
+                {
+                    var b = child as Button;
+                    if (b != null && b.Tag is string && (string)b.Tag == "startup-schedule")
+                        b.Bounds = new Rectangle(230, Math.Max(120, ph - 48), 160, 36);
+                    if (child is Label && child.Top == 18) child.Width = Math.Max(160, pw - 220);
+                }
             }
             if (_progressBox != null)
             {
@@ -1211,12 +2367,75 @@ namespace PCOtimizador
 
         void BuildPageInicializacao()
         {
-            BuildFeaturePage("inicializacao", "page.inicializacao.title", "page.inicializacao.desc", new[]
+            var page = new Panel { BackColor = Bg, Visible = false };
+            _content.Controls.Add(page); _pages["inicializacao"] = page;
+            page.Controls.Add(Register(new Label { Font = new Font("Segoe UI Semibold", 22f), ForeColor = TextMain, Location = new Point(10, 18), Size = new Size(560, 38), AutoEllipsis = true }, "page.inicializacao.title"));
+            page.Controls.Add(Register(new Label { ForeColor = Muted, Location = new Point(12, 58), Size = new Size(720, 24), AutoEllipsis = true }, "page.inicializacao.desc"));
+            _startupRefresh = Register(FlatBtn(0, 0, 160, 32, "", Color.FromArgb(0, 92, 91)), "button.refreshDevice");
+            _startupRefresh.Click += (s, e) => LoadStartupList();
+            page.Controls.Add(_startupRefresh);
+            _startupList = new CheckedListBox
             {
-                new FeatureSpec { Icon = "clock", TitleKey = "card.schedule.title", SubKey = "card.schedule.sub", ButtonKey = "button.schedule", Accent = Accent, Action = () => ScheduleWeekly() },
-                new FeatureSpec { Icon = "heart", TitleKey = "card.health.title", SubKey = "card.health.sub", ButtonKey = "button.health", Accent = Accent2, Action = () => RunCli("-Mode health -AutoYes") },
-                new FeatureSpec { Icon = "folder", TitleKey = "card.logs.title", SubKey = "card.logs.sub", ButtonKey = "button.logs", Accent = Ok, Action = () => OpenLogsFolder() }
-            });
+                BackColor = Color.FromArgb(10, 20, 31),
+                ForeColor = TextMain,
+                BorderStyle = BorderStyle.FixedSingle,
+                CheckOnClick = true,
+                IntegralHeight = false,
+                HorizontalScrollbar = true
+            };
+            page.Controls.Add(_startupList);
+            _startupApply = Register(FlatBtn(0, 0, 210, 36, "", Color.FromArgb(0, 120, 110)), "button.applyStartup");
+            _startupApply.Click += (s, e) => ApplyStartupChanges();
+            page.Controls.Add(_startupApply);
+            var scheduleBtn = Register(FlatBtn(0, 0, 160, 36, "", Color.FromArgb(30, 41, 59)), "button.schedule");
+            scheduleBtn.Click += (s, e) => ScheduleWeekly();
+            scheduleBtn.Tag = "startup-schedule";
+            page.Controls.Add(scheduleBtn);
+        }
+
+        void LoadStartupList()
+        {
+            if (_startupList == null) return;
+            try
+            {
+                _startupItems = StartupInventory.List();
+                _startupList.Items.Clear();
+                foreach (var item in _startupItems)
+                {
+                    string cmd = item.Command ?? "";
+                    if (cmd.Length > 72) cmd = cmd.Substring(0, 69) + "...";
+                    _startupList.Items.Add(item.Name + "  [" + item.Hive + "]  " + cmd, item.Enabled);
+                }
+            }
+            catch (Exception ex) { LogLine(ex.Message); }
+        }
+
+        void ApplyStartupChanges()
+        {
+            if (_startupItems == null || _startupList == null) return;
+            int changes = 0;
+            for (int i = 0; i < _startupItems.Count && i < _startupList.Items.Count; i++)
+            {
+                bool on = _startupList.GetItemChecked(i);
+                if (on != _startupItems[i].OriginallyEnabled) changes++;
+                _startupItems[i].Enabled = on;
+            }
+            if (changes == 0)
+            {
+                MessageBox.Show(Local(_english, "Nada mudou na lista.", "Nothing changed in the list."), T("card.startup.title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            string msg = Local(_english,
+                "Aplicar " + changes + " alteração(ões) na inicialização do Windows?\n\nRecusar (Não) cancela. Isso não apaga programas, só impede ou permite a abertura automática.",
+                "Apply " + changes + " startup change(s)?\n\nDecline (No) cancels. This does not uninstall apps; it only stops or allows automatic start.");
+            if (MessageBox.Show(msg, T("card.startup.title"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            try
+            {
+                StartupInventory.Apply(_startupItems);
+                LogLine(Local(_english, "Inicialização atualizada.", "Startup list updated."));
+                LoadStartupList();
+            }
+            catch (Exception ex) { MessageBox.Show(ex.Message, T("card.startup.title")); }
         }
 
         void BuildPageFerramentas()
@@ -1229,6 +2448,7 @@ namespace PCOtimizador
             _toolsFlow.Controls.Add(ToolCard("card.health.title", "card.health.sub", "shield", () => RunCli("-Mode health -AutoYes")));
             _toolsFlow.Controls.Add(ToolCard("card.scan.title", "card.scan.sub", "drive", () => RunCli("-Mode scan -AutoYes")));
             _toolsFlow.Controls.Add(ToolCard("card.schedule.title", "card.schedule.sub", "clock", () => ScheduleWeekly()));
+            _toolsFlow.Controls.Add(ToolCard("card.undo.title", "card.undo.sub", "shield", UndoTweaks));
             _toolsFlow.Controls.Add(ToolCard("card.logs.title", "card.logs.sub", "folder", OpenLogsFolder));
             page.Controls.Add(_toolsFlow);
         }
@@ -1467,6 +2687,55 @@ namespace PCOtimizador
             _safetyText = Register(new Label { ForeColor = Muted, Font = new Font("Segoe UI", 9.2f), AutoEllipsis = true }, "settings.safety.text");
             _safetyText.Location = new Point(26, 216); _safetyText.Size = new Size(660, 64);
             _helpBox.Controls.Add(_safetyText);
+            _telemetryTitle = Register(new Label { ForeColor = Accent, Font = new Font("Segoe UI Semibold", 10.5f), AutoEllipsis = true }, "settings.telemetry.title");
+            _helpBox.Controls.Add(_telemetryTitle);
+            _telemetryText = Register(new Label { ForeColor = Muted, Font = new Font("Segoe UI", 9.2f), AutoEllipsis = true }, "settings.telemetry.text");
+            _helpBox.Controls.Add(_telemetryText);
+            _telemetryToggle = new TogglePill { Size = new Size(128, 32), Font = new Font("Segoe UI Semibold", 8f), Checked = ReadTelemetryConsent() };
+            _telemetryToggle.Text = T(_telemetryToggle.Checked ? "settings.telemetry.on" : "settings.telemetry.off");
+            _telemetryToggle.Click += (s, e) => SetTelemetryConsent(_telemetryToggle.Checked);
+            _helpBox.Controls.Add(_telemetryToggle);
+            _signTitle = Register(new Label { ForeColor = Accent, Font = new Font("Segoe UI Semibold", 10.5f), AutoEllipsis = true }, "settings.signing.title");
+            _helpBox.Controls.Add(_signTitle);
+            bool signed = UserPrefs.ExeIsSigned(Path.Combine(_root, "PC-Otimizador.exe"));
+            _signText = Register(new Label { ForeColor = Muted, Font = new Font("Segoe UI", 9.2f), AutoEllipsis = true }, signed ? "settings.signing.ok" : "settings.signing.missing");
+            _helpBox.Controls.Add(_signText);
+        }
+
+        bool ReadTelemetryConsent()
+        {
+            try
+            {
+                string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PC-Otimizador", "settings.json");
+                if (!File.Exists(path)) return false;
+                string json = File.ReadAllText(path, Encoding.UTF8);
+                return Regex.IsMatch(json, "\\\"TelemetryConsent\\\"\\s*:\\s*true", RegexOptions.IgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        void SetTelemetryConsent(bool enabled)
+        {
+            if (enabled)
+            {
+                string notice = Local(_english,
+                    "Ativar diagnóstico opcional?\n\nDados: versão do app, build do Windows, ação, duração, resultado e categoria da falha.\nNão coleta usuário, arquivos, caminhos, IP, serial ou nome do computador.\nSem endpoint configurado, os eventos permanecem somente neste PC.",
+                    "Enable optional diagnostics?\n\nData: app version, Windows build, action, duration, result and failure category.\nIt does not collect user, files, paths, IP, serial number or computer name.\nWithout a configured endpoint, events remain only on this PC.");
+                if (MessageBox.Show(notice, T("app.title"), MessageBoxButtons.YesNo, MessageBoxIcon.Information) != DialogResult.Yes)
+                { _telemetryToggle.Checked = false; _telemetryToggle.Text = T("settings.telemetry.off"); return; }
+            }
+            try
+            {
+                var cli = Path.Combine(_root, "PC-Otimizador-CLI.ps1");
+                var psi = new ProcessStartInfo {
+                    FileName = Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"),
+                    Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + cli + "\" -Mode " + (enabled ? "telemetryon" : "telemetryoff"),
+                    WorkingDirectory = _root, UseShellExecute = false, CreateNoWindow = true
+                };
+                using (var p = Process.Start(psi)) { if (!p.WaitForExit(10000) || p.ExitCode != 0) throw new InvalidOperationException("Telemetry settings command failed."); }
+                _telemetryToggle.Text = T(enabled ? "settings.telemetry.on" : "settings.telemetry.off");
+            }
+            catch (Exception ex) { _telemetryToggle.Checked = !enabled; _telemetryToggle.Text = T(_telemetryToggle.Checked ? "settings.telemetry.on" : "settings.telemetry.off"); MessageBox.Show(ex.Message, T("app.title")); }
         }
 
         void ShowPage(string name)
@@ -1477,6 +2746,7 @@ namespace PCOtimizador
             UpdateHero();
             LayoutVisuals();
             if (string.Equals(target, "dispositivo", StringComparison.OrdinalIgnoreCase)) LoadDeviceInfoAsync(false);
+            if (string.Equals(target, "inicializacao", StringComparison.OrdinalIgnoreCase)) LoadStartupList();
         }
 
         Button FlatBtn(int x, int y, int w, int h, string text, Color bg)
@@ -1492,9 +2762,40 @@ namespace PCOtimizador
 
         void ScheduleWeekly()
         {
-            string message = Local(_english, "Criar limpeza automática?\n\n• Domingo às 10:00\n• Somente Limpeza Segura\n• Não altera DNS/energia", "Create automatic cleanup?\n\n• Sunday at 10:00 AM\n• Safe Cleanup only\n• Does not change DNS/power settings");
-            if (MessageBox.Show(message, Local(_english, "Agendar", "Schedule"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-            RunCli("-Mode schedule -AutoYes");
+            var defaults = ActionCatalog.IdsFor("safe", _root);
+            var remembered = UserPrefs.LoadSelection("safe");
+            var last = UserPrefs.LoadLastAuthorized(defaults);
+            if (remembered == null)
+            {
+                remembered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var id in last) remembered.Add(id);
+            }
+            using (var dlg = new ScheduleDialog(_english, defaults, remembered))
+            {
+                dlg.ShowDialog(this);
+                if (dlg.DialogResult != DialogResult.OK || dlg.SelectedIds.Count == 0) return;
+                UserPrefs.SaveSelection("schedule", dlg.SelectedIds);
+                bool high = false;
+                foreach (var id in dlg.SelectedIds)
+                    if (ActionCatalog.Get(id).IsHigh) high = true;
+                var args = "-Mode schedule -AutoYes -ScheduleDay " + dlg.Day + " -ScheduleTime \"" + dlg.TimeOfDay + "\" -Actions \"" + ActionIdGuard.Join(dlg.SelectedIds) + "\"";
+                if (high) args += " -AllowHighRisk";
+                RunCli(args);
+            }
+        }
+
+        void UndoTweaks()
+        {
+            if (!UserPrefs.TweaksPending())
+            {
+                MessageBox.Show(Local(_english, "Não há ajustes recentes (DNS, energia, efeitos) para desfazer.", "There are no recent tweaks (DNS, power, effects) to undo."), T("card.undo.title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            string message = Local(_english,
+                "Desfazer os últimos ajustes de DNS, plano de energia e efeitos visuais?\n\nArquivos já apagados não voltam.\nRecusar cancela.",
+                "Undo the last DNS, power plan and visual-effect tweaks?\n\nDeleted files are not restored.\nDecline cancels.");
+            if (MessageBox.Show(message, T("card.undo.title"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            RunCli("-Mode undotweaks -AutoYes");
         }
 
         void OpenLogsFolder()
@@ -1548,7 +2849,7 @@ namespace PCOtimizador
                                 {
                                     int.TryParse(parts[0], out _healthScore);
                                     string grade = parts.Length > 1 ? parts[1] : "";
-                                    BeginInvoke(new Action(() => { if (!IsDisposed && IsHandleCreated) _healthLabel.Text = T("health.caption") + "\n" + _healthScore + "/100" + (grade != "" ? "  (" + grade + ")" : ""); }));
+                                    BeginInvoke(new Action(() => { if (!IsDisposed && IsHandleCreated) _healthLabel.Text = UserPrefs.HealthTrend(_healthScore, _english) + (grade != "" ? "  (" + grade + ")" : ""); }));
                                 }
                             }
                         }
@@ -1566,16 +2867,34 @@ namespace PCOtimizador
             else if (name == "net") HighlightNav("internet");
             ShowPage("inicio");
             string explain = PresetExplain(name);
-            string msg = explain + "\n\n" + Local(_english, "Executar '" + name + "'", "Run '" + name + "'") + (_dry.Checked ? " (" + T("dryrun") + ")" : "") + "?";
-            if (highRisk && !_dry.Checked)
+            string title = _english ? ("Profile: " + name) : ("Perfil: " + name);
+            if (name == "safe") title = T("card.safe.title");
+            else if (name == "gamer") title = T("card.gamer.title");
+            else if (name == "net") title = T("card.net.title");
+            else if (name == "notebook") title = T("card.notebook.title");
+            else if (name == "full") title = _english ? "FULL CLEANUP" : "LIMPEZA COMPLETA";
+
+            var ids = ActionCatalog.IdsFor(name, _root);
+            Dictionary<string, double> estimates;
+            Cursor = Cursors.WaitCursor;
+            try { estimates = ActionEstimates.Measure(ids); }
+            catch { estimates = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase); }
+            finally { Cursor = Cursors.Default; }
+            using (var dlg = new ConsentDialog(name, title, explain, highRisk, _english, ids, estimates, UserPrefs.LoadSelection(name)))
             {
-                if (MessageBox.Show(Local(_english, "ATENÇÃO — pode alterar DNS / IP / energia\n\n", "WARNING — may change DNS / IP / power settings\n\n") + explain + "\n\n" + Local(_english, "Continuar?", "Continue?"), Local(_english, "Confirmar RISCO", "Confirm RISK"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                dlg.ShowDialog(this);
+                if (dlg.DialogResult != DialogResult.OK || dlg.SelectedIds.Count == 0) return;
+                UserPrefs.SaveSelection(name, dlg.SelectedIds);
+                bool selectedHigh = false;
+                foreach (var id in dlg.SelectedIds)
+                    if (ActionCatalog.Get(id).IsHigh) selectedHigh = true;
+                var args = "-Actions \"" + ActionIdGuard.Join(dlg.SelectedIds) + "\" -AutoYes -StreamProgress";
+                if (selectedHigh) args += " -AllowHighRisk";
+                LogLine(_english
+                    ? ("Consent recorded for " + dlg.SelectedIds.Count + " action(s).")
+                    : ("Consentimento registrado para " + dlg.SelectedIds.Count + " ação(ões)."));
+                RunCli(args);
             }
-            else if (MessageBox.Show(msg, Local(_english, "Confirmar", "Confirm"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-            var args = "-Preset " + name + " -AutoYes -StreamProgress";
-            if (_dry.Checked) args += " -DryRun";
-            if (highRisk && !_dry.Checked) args += " -AllowHighRisk";
-            RunCli(args);
         }
 
         string PresetExplain(string name)
@@ -1605,6 +2924,11 @@ namespace PCOtimizador
 
         void RunCli(string extraArgs)
         {
+            RunCli(extraArgs, extraArgs.IndexOf("-Actions", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        void RunCli(string extraArgs, bool showSummary)
+        {
             if (_running) return;
             if (!string.Equals(_activeNav, "inicio", StringComparison.OrdinalIgnoreCase)) ShowPage("inicio");
             var cli = Path.Combine(_root, "PC-Otimizador-CLI.ps1");
@@ -1619,6 +2943,8 @@ namespace PCOtimizador
             try { if (File.Exists(_cancelFile)) File.Delete(_cancelFile); } catch { }
             _running = true;
             _cancelRequested = false;
+            _showRunSummary = showSummary;
+            _runReport = showSummary ? new ActionRunReport { DryRun = false, BeforeGb = _diskFree } : null;
             _btnCancel.Enabled = true;
             _btnCancel.Visible = true;
             _bar.Value = 0;
@@ -1646,8 +2972,15 @@ namespace PCOtimizador
                     _proc.OutputDataReceived += (s, e) => { if (e.Data != null) BeginInvoke(new Action(() => HandleLine(e.Data))); };
                     _proc.ErrorDataReceived += (s, e) => { if (e.Data != null) BeginInvoke(new Action(() => LogLine("ERR " + e.Data))); };
                     _proc.Start();
-                    _proc.BeginOutputReadLine(); _proc.BeginErrorReadLine(); _proc.WaitForExit();
-                    int exitCode = _proc.ExitCode;
+                    _proc.BeginOutputReadLine(); _proc.BeginErrorReadLine();
+                    int exitCode;
+                    if (!_proc.WaitForExit(7200000))
+                    {
+                        try { _proc.Kill(); } catch { }
+                        exitCode = 124;
+                        BeginInvoke(new Action(() => LogLine(Local(_english, "Tempo máximo de duas horas excedido; processo encerrado com segurança.", "Two-hour maximum runtime exceeded; process stopped safely."))));
+                    }
+                    else { _proc.WaitForExit(); exitCode = _proc.ExitCode; }
                     BeginInvoke(new Action(() =>
                     {
                         if (IsDisposed || !IsHandleCreated) return;
@@ -1655,11 +2988,12 @@ namespace PCOtimizador
                         if (_cancelRequested)
                         {
                             _taskLabel.Text = Local(_english, "Cancelado", "Cancelled"); _pctLabel.ForeColor = Warn; LogLine(Local(_english, "Execução cancelada pelo usuário.", "Run cancelled by the user."));
+                            if (_runReport != null && string.IsNullOrEmpty(_runReport.Outcome)) _runReport.Outcome = "CANCELLED";
                         }
                         else if (exitCode != 0)
                         {
                             _taskLabel.Text = Local(_english, "Falhou (código ", "Failed (code ") + exitCode + ")"; _pctLabel.ForeColor = Danger; LogLine(Local(_english, "A linha de comando terminou com código ", "Command line finished with code ") + exitCode + ".");
-                            MessageBox.Show(Local(_english, "A operação não foi concluída. Consulte o registro para detalhes.", "The operation did not complete. Check the log for details."), T("app.title"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            if (_runReport != null && string.IsNullOrEmpty(_runReport.Outcome)) _runReport.Outcome = "FAILED";
                         }
                         else
                         {
@@ -1667,6 +3001,15 @@ namespace PCOtimizador
                             _pctLabel.Text = "100%"; _taskLabel.Text = Local(_english, "Concluído", "Completed"); _pctLabel.ForeColor = Accent;
                         }
                         HighlightNav("inicio");
+                        if (_showRunSummary && _runReport != null)
+                        {
+                            using (var summary = new ResultDialog(_runReport, _english, _logsDir))
+                                summary.ShowDialog(this);
+                        }
+                        else if (!_cancelRequested && exitCode != 0)
+                        {
+                            MessageBox.Show(Local(_english, "A operação não foi concluída. Consulte o registro para detalhes.", "The operation did not complete. Check the log for details."), T("app.title"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
                     }));
                 }
                 catch (Exception ex)
@@ -1700,8 +3043,27 @@ namespace PCOtimizador
                 if (p.Length >= 6)
                 {
                     _diskFree = p[2]; _diskTot = p[3];
+                    if (_runReport != null) _runReport.BeforeGb = p[2];
                     _beforeAfter.Text = Local(_english, "ANTES   " + p[2] + " GB\nlivres de " + p[3] + " GB   ·   RAM ", "BEFORE   " + p[2] + " GB\nfree of " + p[3] + " GB   ·   RAM ") + p[4] + "/" + p[5] + " GB";
                 }
+                return;
+            }
+            if (line.StartsWith("##ACTION##|"))
+            {
+                var p = line.Split(new[] { '|' }, 5);
+                if (p.Length >= 4)
+                {
+                    string detail = p.Length >= 5 ? p[4] : "";
+                    LogLine(Local(_english, "Ação ", "Action ") + p[1] + ": " + p[2] + (string.IsNullOrEmpty(detail) ? "" : " — " + detail));
+                    if (string.Equals(p[2], "FAILED", StringComparison.OrdinalIgnoreCase)) _pctLabel.ForeColor = Danger;
+                    if (_runReport != null)
+                        _runReport.Items.Add(new ActionOutcome { Id = p[1], Status = p[2], Detail = detail });
+                }
+                return;
+            }
+            if (line.StartsWith("##SUMMARY##|"))
+            {
+                LogLine(Local(_english, "Resumo: ", "Summary: ") + line.Substring("##SUMMARY##|".Length).Replace('|', ' '));
                 return;
             }
             if (line.StartsWith("##RESULT##|AFTER|"))
@@ -1710,20 +3072,33 @@ namespace PCOtimizador
                 if (p.Length >= 8)
                 {
                     string freed = p[6]; string score = p.Length > 8 ? p[8] : "—";
-                    _beforeAfter.Text = Local(_english, "ANTES   " + _diskFree + " GB   →   DEPOIS   " + p[2] + " GB\n" + (_dry.Checked ? "Estimado ~" : "Liberado ~"), "BEFORE   " + _diskFree + " GB   →   AFTER   " + p[2] + " GB\n" + (_dry.Checked ? "Estimated ~" : "Freed ~")) + freed + " MB   ·   RAM " + p[4] + "/" + p[5] + " GB";
-                    _healthLabel.Text = T("health.caption") + "\n" + score + "/100"; LogLine(Local(_english, _dry.Checked ? "Estimativa: ~" : "Resultado: +", _dry.Checked ? "Estimate: ~" : "Result: +") + freed + " MB | " + T("health.caption") + " " + score);
+                    _beforeAfter.Text = Local(_english, "ANTES   " + _diskFree + " GB   →   DEPOIS   " + p[2] + " GB\nLiberado ~", "BEFORE   " + _diskFree + " GB   →   AFTER   " + p[2] + " GB\nFreed ~") + freed + " MB   ·   RAM " + p[4] + "/" + p[5] + " GB";
+                    _healthLabel.Text = UserPrefs.HealthTrend(int.TryParse(score, out _healthScore) ? _healthScore : 0, _english); LogLine(Local(_english, "Resultado: +", "Result: +") + freed + " MB | " + T("health.caption") + " " + score);
+                    if (_runReport != null)
+                    {
+                        _runReport.FreedMb = freed;
+                        _runReport.AfterGb = p[2];
+                        _runReport.Health = score;
+                        if (p.Length >= 8 && !string.IsNullOrEmpty(p[7]) && p[7].IndexOf(':') >= 0) _runReport.LogPath = p[7];
+                    }
                 }
                 return;
             }
             if (line.StartsWith("##HEALTH##|"))
             {
                 var parts = line.Substring("##HEALTH##|".Length).Split('|');
-                if (parts.Length >= 1) { _healthLabel.Text = T("health.caption") + "\n" + parts[0] + "/100" + (parts.Length > 1 ? "  (" + parts[1] + ")" : ""); _beforeAfter.Text = Local(_english, "SAÚDE DO SISTEMA\n", "SYSTEM HEALTH\n") + string.Join("  ·  ", parts); }
+                if (parts.Length >= 1)
+                {
+                    int.TryParse(parts[0], out _healthScore);
+                    _healthLabel.Text = UserPrefs.HealthTrend(_healthScore, _english) + (parts.Length > 1 ? "  (" + parts[1] + ")" : "");
+                    _beforeAfter.Text = Local(_english, "SAÚDE DO SISTEMA\n", "SYSTEM HEALTH\n") + string.Join("  ·  ", parts);
+                }
                 return;
             }
             if (line.StartsWith("##DONE##|"))
             {
                 string status = line.Substring(9); LogLine("Status: " + status);
+                if (_runReport != null) _runReport.Outcome = status;
                 if (status.IndexOf("CANCEL", StringComparison.OrdinalIgnoreCase) >= 0) { _cancelRequested = true; _taskLabel.Text = Local(_english, "Cancelado", "Cancelled"); _pctLabel.ForeColor = Warn; }
                 return;
             }

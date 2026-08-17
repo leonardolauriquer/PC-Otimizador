@@ -14,3 +14,11 @@ Write-Host 'Compilando GUI C# nativa...' -ForegroundColor Cyan
 if (-not (Test-Path $out)) { throw 'Falha compile' }
 Write-Host ("OK: {0} ({1:N1} KB)" -f $out, ((Get-Item $out).Length/1KB)) -ForegroundColor Green
 Write-Host 'Passe JUNTO: PC-Otimizador.exe + Engine.ps1 + PC-Otimizador-CLI.ps1 (+ Executar.bat)'
+if ($env:SIGNING_PFX_PATH -and (Test-Path -LiteralPath $env:SIGNING_PFX_PATH) -and $env:SIGNING_PFX_PASSWORD) {
+  Write-Host 'Assinando com SIGNING_PFX_PATH...' -ForegroundColor Cyan
+  $secure = ConvertTo-SecureString $env:SIGNING_PFX_PASSWORD -AsPlainText -Force
+  $cert = Import-PfxCertificate -FilePath $env:SIGNING_PFX_PATH -CertStoreLocation Cert:\CurrentUser\My -Password $secure
+  $sig = Set-AuthenticodeSignature -FilePath $out -Certificate $cert -TimestampServer 'http://timestamp.digicert.com' -HashAlgorithm SHA256
+  if ($sig.Status -ne 'Valid') { throw "Falha ao assinar EXE: $($sig.Status)" }
+  Write-Host ("Assinado: {0}" -f $cert.Subject) -ForegroundColor Green
+}

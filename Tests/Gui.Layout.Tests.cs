@@ -115,26 +115,29 @@ namespace PCOtimizador
             }
             Check(titleLabels == 3, size + " title has three stable segments");
             Check(chromeButtons == 3, size + " custom chrome has min/max/close controls");
-            var dryRun = Field<Control>(form, "_dry");
             Control rightmostTitle = null;
             foreach (Control c in chrome.Controls)
             {
                 if (c is Label && (c.Text == "PC" || c.Text == "OTIMIZADOR" || c.Text == "PRO"))
                     if (rightmostTitle == null || c.Right > rightmostTitle.Right) rightmostTitle = c;
             }
-            Check(dryRun != null && rightmostTitle != null && !dryRun.Bounds.IntersectsWith(rightmostTitle.Bounds), size + " simulation toggle clears the title");
-            bool clearsChromeButtons = dryRun != null;
-            foreach (Control c in chrome.Controls) if (c is Button && dryRun != null) clearsChromeButtons = clearsChromeButtons && !dryRun.Bounds.IntersectsWith(c.Bounds);
-            Check(clearsChromeButtons, size + " simulation toggle clears window controls");
+            bool titleClearsChrome = rightmostTitle != null;
+            foreach (Control c in chrome.Controls)
+                if (c is Button && rightmostTitle != null)
+                    titleClearsChrome = titleClearsChrome && !rightmostTitle.Bounds.IntersectsWith(c.Bounds);
+            Check(titleClearsChrome, size + " title clears window controls");
 
             var tools = Field<FlowLayoutPanel>(form, "_toolsFlow");
             Check(tools != null && tools.AutoScroll && tools.WrapContents, size + " tools page is responsive and scrollable");
-            if (tools != null) Check(tools.Controls.Count == 4, size + " tools page has four cards");
+            if (tools != null) Check(tools.Controls.Count == 5, size + " tools page has five cards");
             var helpScroll = Field<Panel>(form, "_helpScroll");
             var helpBox = Field<Control>(form, "_helpBox");
             bool helpFitsHorizontally = helpScroll != null && helpBox != null && helpBox.Left >= 0 && helpBox.Right <= helpScroll.ClientSize.Width;
             Check(helpScroll != null && helpScroll.AutoScroll && helpFitsHorizontally, size + " help page is contained and scrollable");
             Check(helpScroll != null && helpScroll.Top >= 92, size + " help content does not cover settings heading");
+            var telemetryToggle = Field<Control>(form, "_telemetryToggle");
+            Check(telemetryToggle != null && helpBox != null && telemetryToggle.Left >= 0 && telemetryToggle.Right <= helpBox.ClientSize.Width && telemetryToggle.Bottom <= helpBox.ClientSize.Height,
+                size + " telemetry consent control is contained");
 
             var nav = Field<IList>(form, "_navBtns");
             Check(nav != null && nav.Count == 8, size + " sidebar navigation is complete");
@@ -151,7 +154,7 @@ namespace PCOtimizador
                     typeof(Control).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(settingsNav, new object[] { EventArgs.Empty });
                 Check(settingsNav != null && Field<string>(form, "_activeNav") == "configuracoes", size + " settings navigation opens settings page");
             }
-            foreach (string featurePageName in new[] { "limpeza", "desempenho", "internet", "inicializacao" })
+            foreach (string featurePageName in new[] { "limpeza", "desempenho", "internet" })
             {
                 var featurePage = pageMap[featurePageName] as Panel;
                 FlowLayoutPanel featureFlow = null;
@@ -162,6 +165,8 @@ namespace PCOtimizador
             }
             var deviceFlow = Field<FlowLayoutPanel>(form, "_deviceFlow");
             Check(deviceFlow != null && deviceFlow.AutoScroll && deviceFlow.Controls.Count == 8, size + " device page has eight hardware sections");
+            Check(Field<CheckedListBox>(form, "_startupList") != null, size + " startup programs list exists");
+            Check(Field<Button>(form, "_startupApply") != null, size + " startup apply button exists");
             foreach (string pageName in new[] { "inicio", "limpeza", "desempenho", "internet", "inicializacao", "ferramentas", "dispositivo", "configuracoes" })
             {
                 InvokePage(form, pageName);
@@ -187,15 +192,16 @@ namespace PCOtimizador
                 var homeControls = localized == null ? null : localized["nav.inicio"] as IList;
                 var homeLabel = homeControls == null || homeControls.Count == 0 ? null : homeControls[0] as Label;
                 Check(homeLabel != null && homeLabel.Text == "HOME", size + " switches to English");
-                Check(form.Text == "PC Optimizer Pro" && Field<Control>(form, "_dry").Text == "DRY-RUN", size + " English mode localizes title and simulation toggle");
+                Check(form.Text == "PC Optimizer Pro", size + " English mode localizes title");
+                Check(telemetryToggle != null && (telemetryToggle.Text == "ENABLED" || telemetryToggle.Text == "DISABLED"), size + " English mode localizes telemetry consent");
                 var safeControls = localized == null ? null : localized["card.safe.title"] as IList;
                 bool allSafeEnglish = safeControls != null && safeControls.Count >= 2;
                 if (allSafeEnglish) foreach (Control safe in safeControls) allSafeEnglish = allSafeEnglish && safe.Text == "SAFE CLEANUP";
                 Check(allSafeEnglish, size + " translates repeated dashboard cards");
                 typeof(Button).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(languagePt, new object[] { EventArgs.Empty });
                 Check(homeLabel != null && homeLabel.Text == "INÍCIO", size + " switches back to Portuguese");
-                Check(form.Text == "PC Otimizador Pro" && Field<Control>(form, "_dry").Text == "SIMULAÇÃO", size + " Portuguese mode localizes title and simulation toggle");
-                Check(Field<Label>(form, "_healthLabel").Text.StartsWith("Saúde", StringComparison.Ordinal), size + " Portuguese mode has no mixed health label");
+                Check(form.Text == "PC Otimizador Pro", size + " Portuguese mode localizes title");
+                Check(telemetryToggle != null && (telemetryToggle.Text == "ATIVADA" || telemetryToggle.Text == "DESATIVADA"), size + " Portuguese mode localizes telemetry consent");
             }
         }
 
@@ -214,6 +220,15 @@ namespace PCOtimizador
             {
                 using (var form = new MainForm()) CheckSize(form, size);
             }
+            var safeIds = ActionCatalog.IdsFor("safe", ".");
+            Check(safeIds != null && safeIds.Length > 0, "safe consent catalog loads");
+            bool recycleInSafe = false;
+            foreach (var id in safeIds) if (string.Equals(id, "recycle", StringComparison.OrdinalIgnoreCase)) recycleInSafe = true;
+            Check(!recycleInSafe, "safe consent catalog excludes recycle");
+            Check(ActionEstimates.FormatHint(0, true, false) == "ajuste", "consent estimate labels settings");
+            Check(ActionEstimates.FormatHint(2048, false, false).IndexOf("GB", StringComparison.Ordinal) >= 0, "consent estimate formats gigabytes");
+            Check(ActionEstimates.FormatTotal(12, false, 3, false).IndexOf("Estimativa", StringComparison.Ordinal) >= 0, "consent estimate total is localized");
+            Check(UserPrefs.LoadSelection("missing-preset-xyz") == null, "unknown preset has no remembered selection");
             Console.WriteLine(_failed == 0 ? "ALL GUI LAYOUT TESTS PASSED" : _failed + " GUI LAYOUT TESTS FAILED");
             Environment.ExitCode = _failed == 0 ? 0 : 1;
         }

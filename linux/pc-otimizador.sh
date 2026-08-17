@@ -4,7 +4,7 @@
 set -u
 # nao use set -e: limpeza continua mesmo se um passo falhar
 
-VERSION="5.7-linux"
+VERSION="5.9-linux"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DRY_RUN=0
 AUTO_YES=0
@@ -14,8 +14,27 @@ LOG_DIR="${HOME}/.local/share/pc-otimizador/logs"
 WHITELIST_FILE="${LOG_DIR}/whitelist.txt"
 SESSION_LOG=""
 FREED_KB=0
+LOCK_DIR="${LOG_DIR}/execution.lock"
 
 mkdir -p "$LOG_DIR"
+
+acquire_lock() {
+  if [[ -d "$LOCK_DIR" ]]; then
+    local old=""; [[ -f "$LOCK_DIR/pid" ]] && old="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+    if [[ "$old" =~ ^[0-9]+$ ]] && kill -0 "$old" 2>/dev/null; then log "Outra otimizacao ja esta em execucao (PID $old)" ERROR; return 1; fi
+    rm -rf "$LOCK_DIR" 2>/dev/null || return 1
+  fi
+  mkdir "$LOCK_DIR" || return 1; printf '%s' "$$" >"$LOCK_DIR/pid"
+}
+release_lock() { rm -rf "$LOCK_DIR" 2>/dev/null || true; }
+run_bounded() {
+  local seconds="$1"; shift
+  "$@" & local pid=$!
+  ( sleep "$seconds"; kill -TERM "$pid" 2>/dev/null || true ) & local watchdog=$!
+  wait "$pid"; local rc=$?
+  kill "$watchdog" 2>/dev/null || true; wait "$watchdog" 2>/dev/null || true
+  return "$rc"
+}
 
 # ── i18n minimo ──────────────────────────────────────────────────────────────
 t() {
@@ -151,9 +170,9 @@ safe_rm_tree() {
   fi
   # limpa conteudo, mantem pasta quando e cache padrao
   if [[ -d "$p" ]]; then
-    find "$p" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+    find "$p" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || { log "Falha ao limpar: $p" ERROR; return 1; }
   else
-    rm -f "$p" 2>/dev/null || true
+    rm -f "$p" 2>/dev/null || { log "Falha ao remover: $p" ERROR; return 1; }
   fi
   local after delta
   after="$(kb_of_path "$p")"
@@ -292,9 +311,9 @@ act_journal() {
     return 0
   fi
   if command -v journalctl >/dev/null; then
-    run_root journalctl --vacuum-time=7d 2>/dev/null || log "journal vacuum falhou (precisa sudo)" WARN
+    run_bounded 300 run_root journalctl --vacuum-time=7d 2>/dev/null || { log "journal vacuum falhou ou excedeu 300s" ERROR; return 1; }
   else
-    log "journalctl indisponivel" WARN
+    log "journalctl indisponivel" WARN; return 20
   fi
 }
 
@@ -304,45 +323,50 @@ act_pkg_cache() {
   case "$pm" in
     apt)
       if (( DRY_RUN == 1 )); then log "[DRY-RUN] apt-get clean && autoremove"; return 0; fi
-      run_root apt-get clean -y 2>/dev/null || true
+      run_bounded 300 run_root apt-get clean -y 2>/dev/null || { log "apt-get clean falhou ou excedeu 300s" ERROR; return 1; }
       ;;
     dnf)
       if (( DRY_RUN == 1 )); then log "[DRY-RUN] dnf clean all"; return 0; fi
-      run_root dnf clean all -y 2>/dev/null || true
+      run_bounded 300 run_root dnf clean all -y 2>/dev/null || { log "dnf clean falhou ou excedeu 300s" ERROR; return 1; }
       ;;
     pacman)
       if (( DRY_RUN == 1 )); then log "[DRY-RUN] pacman -Sc"; return 0; fi
-      run_root pacman -Sc --noconfirm 2>/dev/null || true
+      run_bounded 300 run_root pacman -Sc --noconfirm 2>/dev/null || { log "pacman clean falhou ou excedeu 300s" ERROR; return 1; }
       ;;
     zypper)
       if (( DRY_RUN == 1 )); then log "[DRY-RUN] zypper clean"; return 0; fi
-      run_root zypper clean 2>/dev/null || true
+      run_bounded 300 run_root zypper clean 2>/dev/null || { log "zypper clean falhou ou excedeu 300s" ERROR; return 1; }
       ;;
-    *) log "Gerenciador de pacotes nao detectado" WARN ;;
+    *) log "Gerenciador de pacotes nao detectado" WARN; return 20 ;;
   esac
 }
 
 act_dns() {
   if (( DRY_RUN == 1 )); then log "[DRY-RUN] flush DNS (resolvectl/nscd)"; return 0; fi
+  local attempted=0
   if command -v resolvectl >/dev/null; then
-    run_root resolvectl flush-caches 2>/dev/null || true
+    attempted=1
+    run_root resolvectl flush-caches 2>/dev/null || { log "resolvectl falhou" ERROR; return 1; }
   elif command -v systemd-resolve >/dev/null; then
-    run_root systemd-resolve --flush-caches 2>/dev/null || true
+    attempted=1
+    run_root systemd-resolve --flush-caches 2>/dev/null || { log "systemd-resolve falhou" ERROR; return 1; }
   fi
   if command -v nscd >/dev/null; then
-    run_root nscd -i hosts 2>/dev/null || true
+    attempted=1
+    run_root nscd -i hosts 2>/dev/null || { log "nscd falhou" ERROR; return 1; }
   fi
-  log "DNS cache flush tentado"
+  if (( attempted == 0 )); then log "Nenhum resolvedor com flush detectado" WARN; return 20; fi
+  log "DNS cache flush confirmado"
 }
 
 act_flatpak() {
-  if ! command -v flatpak >/dev/null; then log "Flatpak nao instalado"; return 0; fi
+  if ! command -v flatpak >/dev/null; then log "Flatpak nao instalado"; return 20; fi
   if (( DRY_RUN == 1 )); then log "[DRY-RUN] flatpak uninstall --unused"; return 0; fi
-  flatpak uninstall --unused -y 2>/dev/null || true
+  flatpak uninstall --unused -y 2>/dev/null || { log "flatpak cleanup falhou" ERROR; return 1; }
 }
 
 act_snap() {
-  if ! command -v snap >/dev/null; then return 0; fi
+  if ! command -v snap >/dev/null; then return 20; fi
   if (( DRY_RUN == 1 )); then log "[DRY-RUN] limpar snaps disabled"; return 0; fi
   # remove revisoes antigas disabled
   snap list --all 2>/dev/null | awk '/disabled/{print $1, $3}' | while read -r name rev; do
@@ -353,8 +377,8 @@ act_snap() {
 act_trim() {
   if (( DRY_RUN == 1 )); then log "[DRY-RUN] fstrim -av"; return 0; fi
   if command -v fstrim >/dev/null; then
-    run_root fstrim -av 2>/dev/null || log "fstrim falhou (HDD ou sem sudo)" WARN
-  fi
+    run_bounded 600 run_root fstrim -av 2>/dev/null || { log "fstrim falhou ou excedeu 600s" ERROR; return 1; }
+  else return 20; fi
 }
 
 estimate_safe_kb() {
@@ -425,6 +449,8 @@ run_preset() {
   local total=${#ids[@]}
   local i=0 id
   FREED_KB=0
+  acquire_lock || { printf '##DONE##|BLOCKED|CONCURRENT\n'; return 3; }
+  trap release_lock EXIT INT TERM
   reset_cancel
   init_log
   ensure_whitelist
@@ -438,12 +464,15 @@ run_preset() {
   est="$(estimate_safe_kb)"
   log "Estimativa aproximada (amostra): $(human_kb "$est")"
 
-  local cancelled=0
+  local cancelled=0 failed=0 succeeded=0 skipped=0 rc=0
   for id in "${ids[@]}"; do
     if cancel_requested; then log "$(t cancel)" WARN; cancelled=1; break; fi
     i=$((i + 1))
     progress "$i" "$total" "$(action_name "$id")"
-    run_action "$id"
+    run_action "$id"; rc=$?
+    if (( rc == 0 )); then succeeded=$((succeeded + 1)); printf '##ACTION##|%s|SUCCESS|1|verified\n' "$id"
+    elif (( rc == 20 )); then skipped=$((skipped + 1)); printf '##ACTION##|%s|SKIPPED|0|capability unavailable\n' "$id"
+    else failed=$((failed + 1)); printf '##ACTION##|%s|FAILED|1|see log\n' "$id"; fi
   done
 
   local free_after score grade
@@ -453,7 +482,10 @@ run_preset() {
   log "$summary"
   finish_log "$summary"
   printf '##RESULT##|AFTER|%s|%s|%s|%s|%s\n' "$free_after" "$FREED_KB" "$score" "$grade" "${SESSION_LOG}"
-  if (( cancelled == 1 )); then printf '##DONE##|CANCELLED\n'; return 2; fi
+  printf '##SUMMARY##|SUCCESS=%s|SKIPPED=%s|FAILED=%s|TOTAL=%s\n' "$succeeded" "$skipped" "$failed" "$total"
+  if (( cancelled == 1 )); then release_lock; printf '##DONE##|CANCELLED\n'; return 2; fi
+  if (( failed > 0 )); then release_lock; printf '##DONE##|FAILED\n'; return 1; fi
+  release_lock
   printf '##DONE##|OK\n'
 }
 

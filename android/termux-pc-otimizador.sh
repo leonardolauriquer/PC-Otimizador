@@ -4,18 +4,37 @@
 # Sem root NAO limpa cache de outros apps nem "otimiza o telefone inteiro".
 set -u
 
-VERSION="5.7-android-termux"
+VERSION="5.9-android-termux"
 DRY_RUN=0
 AUTO_YES=0
 LOG_DIR="${HOME}/.pc-otimizador-logs"
 SESSION_LOG=""
 FREED_KB=0
+LOCK_DIR="${LOG_DIR}/execution.lock"
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 CANCEL_FILE="${TMPDIR:-/tmp}/pc-otimizador-cancel.flag"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOAD_PRESET="${SCRIPT_DIR}/../core/load_preset.py"
 
 mkdir -p "$LOG_DIR"
+
+acquire_lock() {
+  if [[ -d "$LOCK_DIR" ]]; then
+    local old=""; [[ -f "$LOCK_DIR/pid" ]] && old="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+    if [[ "$old" =~ ^[0-9]+$ ]] && kill -0 "$old" 2>/dev/null; then log "Outra otimizacao ja esta em execucao (PID $old)" ERROR; return 1; fi
+    rm -rf "$LOCK_DIR" 2>/dev/null || return 1
+  fi
+  mkdir "$LOCK_DIR" || return 1; printf '%s' "$$" >"$LOCK_DIR/pid"
+}
+release_lock() { rm -rf "$LOCK_DIR" 2>/dev/null || true; }
+run_bounded() {
+  local seconds="$1"; shift
+  "$@" & local pid=$!
+  ( sleep "$seconds"; kill -TERM "$pid" 2>/dev/null || true ) & local watchdog=$!
+  wait "$pid"; local rc=$?
+  kill "$watchdog" 2>/dev/null || true; wait "$watchdog" 2>/dev/null || true
+  return "$rc"
+}
 
 log() {
   local level="${2:-INFO}"
@@ -67,9 +86,9 @@ safe_clean_dir() {
     FREED_KB=$((FREED_KB + kb)); return 0
   fi
   if [[ -d "$p" ]]; then
-    find "$p" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+    find "$p" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || { log "Falha ao limpar: $p" ERROR; return 1; }
   else
-    rm -f "$p" 2>/dev/null || true
+    rm -f "$p" 2>/dev/null || { log "Falha ao remover: $p" ERROR; return 1; }
   fi
   local after delta
   after="$(kb_of "$p")"
@@ -93,7 +112,6 @@ finish_log() {
   echo "Liberado~$(human_kb "$FREED_KB")" >>"$SESSION_LOG"
   echo "Fim: $(date)" >>"$SESSION_LOG"
   log "Log: $SESSION_LOG"
-  printf '##DONE##|ok|%s\n' "$(human_kb "$FREED_KB")"
 }
 
 act_termux_cache() {
@@ -103,21 +121,25 @@ act_termux_cache() {
 }
 
 act_apt() {
-  if ! command -v apt >/dev/null; then return 0; fi
+  if ! command -v apt >/dev/null; then return 20; fi
   if (( DRY_RUN == 1 )); then log "[DRY-RUN] apt clean && autoremove"; return 0; fi
-  apt clean 2>/dev/null || true
+  run_bounded 300 apt clean 2>/dev/null || { log "apt clean falhou ou excedeu 300s" ERROR; return 1; }
   log "apt clean"
 }
 
 act_pip() {
+  local attempted=0
   if command -v pip >/dev/null; then
+    attempted=1
     if (( DRY_RUN == 1 )); then log "[DRY-RUN] pip cache purge"; return 0; fi
-    pip cache purge 2>/dev/null || true
+    run_bounded 300 pip cache purge 2>/dev/null || { log "pip cache purge falhou ou excedeu 300s" ERROR; return 1; }
   fi
   if command -v npm >/dev/null; then
+    attempted=1
     if (( DRY_RUN == 1 )); then log "[DRY-RUN] npm cache clean --force"; return 0; fi
-    npm cache clean --force 2>/dev/null || true
+    run_bounded 300 npm cache clean --force 2>/dev/null || { log "npm cache clean falhou ou excedeu 300s" ERROR; return 1; }
   fi
+  (( attempted == 1 )) || return 20
 }
 
 act_tips() {
@@ -147,12 +169,14 @@ run_action() {
 
 run_safe() {
   FREED_KB=0
+  acquire_lock || { printf '##DONE##|blocked|concurrent\n'; return 3; }
+  trap release_lock EXIT INT TERM
   reset_cancel
   init_log
   log "Escopo: apenas Termux (sandbox). Sem root = sem limpeza global do Android."
   local ids=( $(preset_ids safe) )
   local total=${#ids[@]} i=0 id
-  local cancelled=0
+  local cancelled=0 failed=0 succeeded=0 skipped=0 rc=0
   for id in "${ids[@]}"; do
     if cancel_requested; then
       log "Cancelado pelo usuario" WARN
@@ -161,11 +185,18 @@ run_safe() {
     fi
     i=$((i + 1))
     progress "$i" "$total" "$id"
-    run_action "$id"
+    run_action "$id"; rc=$?
+    if (( rc == 0 )); then succeeded=$((succeeded + 1)); printf '##ACTION##|%s|SUCCESS|1|verified\n' "$id"
+    elif (( rc == 20 )); then skipped=$((skipped + 1)); printf '##ACTION##|%s|SKIPPED|0|capability unavailable\n' "$id"
+    else failed=$((failed + 1)); printf '##ACTION##|%s|FAILED|1|see log\n' "$id"; fi
   done
   act_tips
   finish_log
-  if (( cancelled == 1 )); then printf '##DONE##|cancelled\n'; return 2; fi
+  printf '##SUMMARY##|SUCCESS=%s|SKIPPED=%s|FAILED=%s|TOTAL=%s\n' "$succeeded" "$skipped" "$failed" "$total"
+  if (( cancelled == 1 )); then release_lock; printf '##DONE##|cancelled\n'; return 2; fi
+  if (( failed > 0 )); then release_lock; printf '##DONE##|failed\n'; return 1; fi
+  release_lock
+  printf '##DONE##|ok|%s\n' "$(human_kb "$FREED_KB")"
   log "Concluido. Liberado~$(human_kb "$FREED_KB")"
 }
 

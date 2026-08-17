@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 <#
-  PC Otimizador Pro — CLI v5.5
+  PC Otimizador Pro — CLI v5.9
   -Preset safe|gamer|net|full|notebook
   -Mode menu|custom|scan|schedule|unschedule
   -DryRun -EstimateOnly -AutoYes -Lang pt|en
@@ -8,15 +8,20 @@
 param(
   [ValidateSet('safe','gamer','net','full','notebook','')]
   [string]$Preset = '',
-  [ValidateSet('menu','custom','scan','schedule','unschedule','health','whitelist','bloat','')]
+  [ValidateSet('menu','custom','scan','schedule','unschedule','health','whitelist','bloat','telemetryon','telemetryoff','telemetrystatus','undotweaks','')]
   [string]$Mode = '',
+  [string]$Actions = '',
+  [ValidateSet('Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','')]
+  [string]$ScheduleDay = '',
+  [string]$ScheduleTime = '',
   [switch]$DryRun,
   [switch]$EstimateOnly,
   [switch]$AutoYes,
   [switch]$AllowHighRisk,
   [switch]$StreamProgress,
   [ValidateSet('pt','en')]
-  [string]$Lang = 'pt'
+  [string]$Lang = 'pt',
+  [string]$TelemetryEndpoint = ''
 )
 
 Set-StrictMode -Version Latest
@@ -25,11 +30,31 @@ $Host.UI.RawUI.WindowTitle = 'PC Otimizador Pro'
 . (Join-Path $PSScriptRoot 'Engine.ps1')
 $script:UiLang = $Lang
 
+if ($Mode -eq 'telemetryon') {
+  $settings = Set-TelemetrySettings -Consent $true -Endpoint $TelemetryEndpoint
+  Write-Host $(if ($Lang -eq 'en') { 'Anonymous diagnostics enabled by explicit consent.' } else { 'Diagnostico anonimo ativado por consentimento explicito.' }) -ForegroundColor Green
+  if (-not $TelemetryEndpoint) { Write-Host $(if ($Lang -eq 'en') { 'No endpoint: events remain only in the local file.' } else { 'Sem endpoint: eventos ficam somente no arquivo local.' }) -ForegroundColor Yellow }
+  exit 0
+}
+if ($Mode -eq 'telemetryoff') {
+  $null = Set-TelemetrySettings -Consent $false -Endpoint ''
+  Write-Host $(if ($Lang -eq 'en') { 'Diagnostics disabled.' } else { 'Diagnostico desativado.' }) -ForegroundColor Green
+  exit 0
+}
+if ($Mode -eq 'telemetrystatus') {
+  $settings = Get-AppSettings
+  $settings | ConvertTo-Json
+  exit 0
+}
+
 if (-not (Test-IsAdmin)) {
   Write-Host 'Admin...' -ForegroundColor Yellow
   $pass = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
   if ($Preset) { $pass += " -Preset $Preset" }
   if ($Mode) { $pass += " -Mode $Mode" }
+  if ($Actions) { $pass += " -Actions `"$Actions`"" }
+  if ($ScheduleDay) { $pass += " -ScheduleDay $ScheduleDay" }
+  if ($ScheduleTime) { $pass += " -ScheduleTime `"$ScheduleTime`"" }
   if ($DryRun) { $pass += ' -DryRun' }
   if ($EstimateOnly) { $pass += ' -EstimateOnly' }
   if ($AutoYes) { $pass += ' -AutoYes' }
@@ -91,7 +116,7 @@ function Write-Banner {
   $s = Get-SystemSnapshot
   Write-Host ''
   Write-Host '  ============================================================' -ForegroundColor DarkCyan
-  Write-Host '       PC OTIMIZADOR PRO  ·  v5.5' -ForegroundColor Cyan
+  Write-Host '       PC OTIMIZADOR PRO  ·  v5.9' -ForegroundColor Cyan
   Write-Host '  ============================================================' -ForegroundColor DarkCyan
   Write-Host ("  {0} | {1} | Disco {2} GB livres ({3}% usado)" -f $s.PC, $s.OS, $s.DiskFree, $s.DiskUsed) -ForegroundColor DarkGray
   Write-Host '  Nao apaga Documentos/Fotos/Downloads. Digite ? para ajuda.' -ForegroundColor DarkGreen
@@ -199,17 +224,20 @@ function Show-PresetAndRun([string]$Key, [string]$Titulo) {
   $ids = @(Get-PresetIds $Key)
   Write-Host "  PERFIL: $Titulo" -ForegroundColor Cyan
   Write-Host ("  {0}" -f (Get-PresetBlurb $Key)) -ForegroundColor DarkYellow
+  Write-Host '  Nunca apaga Documentos/Fotos/Downloads/Desktop/OneDrive.' -ForegroundColor DarkGreen
   Write-Host '  ----------------------------------------------------------' -ForegroundColor DarkGray
   $n=1; foreach ($id in $ids) {
     $nome = if ($script:Opts.Keys -contains $id) { $script:Opts[$id].Nome } else { $id }
-    Write-Host ("   {0,2}. {1}" -f $n, $nome); $n++
+    $risk = if ($script:Opts.Keys -contains $id) { $script:Opts[$id].Risk } else { 'safe' }
+    Write-Host ("   {0,2}. {1}  [{2}]" -f $n, $nome, $risk); $n++
   }
   Write-Host ''
-  Write-Host '  [E] Executar  [D] Dry-run (simula)  [M] So estimar MB  [?] Ajuda  [V] Voltar' -ForegroundColor Yellow
+  Write-Host '  Digite CONCORDO para autorizar TODAS as acoes, D=simular, M=estimar, V=voltar.' -ForegroundColor Yellow
   if ($AutoYes) { Invoke-SelectedRun $ids; return }
   $c = Read-Choice
   switch ($c) {
-    'e' { Invoke-SelectedRun $ids }
+    'concordo' { Invoke-SelectedRun $ids }
+    'e' { Write-Host '  Para executar de verdade, digite CONCORDO.' -ForegroundColor Yellow; Start-Sleep 2; Show-PresetAndRun $Key $Titulo }
     'd' { Invoke-SelectedRun $ids -AsDry }
     'm' { Invoke-SelectedRun $ids -AsEstimate }
     '?' { Show-HelpScreen; Show-PresetAndRun $Key $Titulo }
@@ -277,11 +305,34 @@ function Start-Gui {
 }
 
 # Entry points
-if ($Mode -eq 'schedule') { Register-WeeklyCleanup; if (-not $AutoYes) { [void](Read-Host 'Enter') }; exit }
+if ($Mode -eq 'schedule') {
+  if ($ScheduleTime -and $ScheduleTime -notmatch '^([01]?\d|2[0-3]):[0-5]\d$') {
+    Write-Host 'Hora invalida. Use HH:mm (ex.: 10:00).' -ForegroundColor Red
+    exit 2
+  }
+  $ids = @($Actions.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^[a-z][a-z0-9]{0,31}$' -and ($script:Opts.Keys -contains $_) })
+  $day = if ($ScheduleDay) { $ScheduleDay } else { 'Sunday' }
+  $at = if ($ScheduleTime) { $ScheduleTime } else { '10:00' }
+  Register-WeeklyCleanup -DaysOfWeek $day -At $at -Actions $ids
+  if (-not $AutoYes) { [void](Read-Host 'Enter') }
+  exit
+}
+if ($Mode -eq 'undotweaks') {
+  try {
+    $null = Restore-LastTweaks
+    Write-Host $(if ($Lang -eq 'en') { 'Previous tweaks restored.' } else { 'Ajustes anteriores restaurados.' }) -ForegroundColor Green
+  } catch {
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    if ($AutoYes) { exit 2 }
+  }
+  if (-not $AutoYes) { [void](Read-Host 'Enter') }
+  exit
+}
 if ($Mode -eq 'unschedule') { Unregister-WeeklyCleanup; if (-not $AutoYes) { [void](Read-Host 'Enter') }; exit }
 if ($Mode -eq 'health') {
   Import-Whitelist
   $h = Get-HealthScore
+  Add-HealthHistory -Score $h.Score
   $m = Get-DriveMediaInfo
   Write-Host ("Health Score: {0}/100 ({1})" -f $h.Score, $h.Grade) -ForegroundColor Cyan
   Write-Host ("Disco usado: {0}% | Livres: {1} GB | RAM: {2}% | Lixo~{3} MB" -f $h.DiskUsed, $h.DiskFreeGB, $h.RamPct, $h.JunkMB)
@@ -327,6 +378,12 @@ if ($Mode -eq 'scan') {
   Write-Log ("Health Score: {0}/100 ({1})" -f $h.Score, $h.Grade)
   Complete-SessionLog | Out-Null
   if (-not $AutoYes) { [void](Read-Host 'Enter') }
+  exit
+}
+if ($Actions) {
+  $ids = @($Actions.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^[a-z][a-z0-9]{0,31}$' -and ($script:Opts.Keys -contains $_) })
+  if ($ids.Count -eq 0) { Write-Host 'Nenhuma acao valida em -Actions.' -ForegroundColor Red; exit 2 }
+  Invoke-SelectedRun $ids -AsDry:$DryRun -AsEstimate:$EstimateOnly
   exit
 }
 if ($Preset) {

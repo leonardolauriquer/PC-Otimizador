@@ -7,16 +7,20 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g. v5.7.0)'
+        description: 'Version tag (e.g. v5.9.0)'
         required: true
-        default: 'v5.7.0'
+        default: 'v5.9.0'
 
 permissions:
   contents: read
 
 jobs:
   test:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Engine tests
@@ -25,9 +29,21 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests\Engine.Tests.ps1
           powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests\Static.Tests.ps1
           powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests\Gui.Layout.Tests.ps1
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests\Reliability.Tests.ps1
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests\Updater.Tests.ps1
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests\Hardware.Contract.ps1
+      - name: Upload hardware capability contract
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardware-contract-${{ matrix.os }}
+          path: hardware-contract.json
 
   shell-smoke:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Shell syntax and core JSON
@@ -39,12 +55,33 @@ jobs:
           bash -n android/termux-pc-otimizador.sh
           python3 -m json.tool core/presets.json >/dev/null
           python3 -m py_compile core/load_preset.py
+          HOME="$(mktemp -d)" bash linux/pc-otimizador.sh --preset safe --dry-run --yes
+
+  macos-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: macOS syntax and dry-run
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n macos/pc-otimizador.sh
+          HOME="$(mktemp -d)" bash macos/pc-otimizador.sh --preset safe --dry-run --yes
 
   build-zip:
-    needs: [test, shell-smoke]
+    needs: [test, shell-smoke, macos-smoke]
     runs-on: windows-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
+    env:
+      SIGNING_PFX_BASE64: ${{ secrets.SIGNING_PFX_BASE64 }}
+      SIGNING_PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,6 +93,27 @@ jobs:
             /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Management.dll `
             /win32manifest:app.manifest /out:PC-Otimizador.exe GuiNative.cs
           if ($LASTEXITCODE -ne 0) { throw 'csc failed' }
+
+      - name: Authenticode sign when certificate is configured
+        if: ${{ env.SIGNING_PFX_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'pc-otimizador-signing.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+          $secure = ConvertTo-SecureString $env:SIGNING_PFX_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $secure -Exportable
+          if (-not $cert) { throw 'Certificate import failed' }
+          foreach ($script in 'Engine.ps1','PC-Otimizador-CLI.ps1','Update.ps1','PC-Otimizador.ps1') {
+            $sig = Set-AuthenticodeSignature -FilePath $script -Certificate $cert -TimestampServer 'http://timestamp.digicert.com' -HashAlgorithm SHA256
+            if ($sig.Status -ne 'Valid') { throw "Script signing failed: $script ($($sig.Status))" }
+          }
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter signtool.exe -Recurse |
+            Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw 'signtool.exe not found' }
+          & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /sha1 $cert.Thumbprint PC-Otimizador.exe
+          if ($LASTEXITCODE -ne 0) { throw 'EXE signing failed' }
+          Set-Content -LiteralPath SIGNING-REQUIRED -Value $cert.Thumbprint -Encoding ascii
+          Remove-Item -LiteralPath $pfx -Force
 
       - name: Pack release folder
         shell: pwsh
@@ -70,12 +128,23 @@ jobs:
             if (-not (Test-Path $f)) { throw "Missing required release file: $f" }
           }
           Copy-Item Executar.bat,Engine.ps1,PC-Otimizador-CLI.ps1,PC-Otimizador.ps1,PC-Otimizador.exe,Update.ps1,VERSION,LEIA-ME.txt,LICENSE,README.md $out
+          if (Test-Path SIGNING-REQUIRED) { Copy-Item SIGNING-REQUIRED $out }
+          else { Set-Content -LiteralPath "$out\SIGNING-STATUS.txt" -Value 'UNSIGNED: configure SIGNING_PFX_BASE64 and SIGNING_PFX_PASSWORD repository secrets.' -Encoding ascii }
           foreach ($dir in 'linux','macos','android','ios','core') {
             if (Test-Path $dir) { Copy-Item -Recurse $dir "$out\$dir" }
           }
           if (-not (Test-Path "$out\Engine.ps1")) { throw 'Pack failed: Engine.ps1' }
           if (-not (Test-Path "$out\PC-Otimizador.exe")) { throw 'Pack failed: exe' }
           if (-not (Test-Path "$out\core\presets.json")) { throw 'Pack failed: presets' }
+          $files = Get-ChildItem -LiteralPath $out -File -Recurse | ForEach-Object {
+            [ordered]@{
+              path = $_.FullName.Substring((Resolve-Path $out).Path.Length + 1).Replace('\','/')
+              size = $_.Length
+              sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+          }
+          [ordered]@{ schema=1; version=(Get-Content VERSION -Raw).Trim(); files=@($files) } |
+            ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$out\package-manifest.json" -Encoding UTF8
           Compress-Archive -Path "$out\*" -DestinationPath 'PC-Otimizador-Windows.zip' -Force
           Get-FileHash 'PC-Otimizador-Windows.zip' -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash.ToLower())  PC-Otimizador-Windows.zip" } |
@@ -92,6 +161,13 @@ jobs:
             echo "name=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Sign build provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            PC-Otimizador-Windows.zip
+            SHA256SUMS.txt
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -102,7 +178,8 @@ jobs:
             ## Trust notes
             - Builds only after Engine tests pass
             - `SHA256SUMS.txt` included — verify the ZIP hash
-            - Executable is **not** Authenticode-signed (use `Executar.bat` if SmartScreen/AV complains)
+            - Every file is covered by `package-manifest.json`
+            - Authenticode is enforced automatically when the repository signing certificate is configured
           files: |
             PC-Otimizador-Windows.zip
             SHA256SUMS.txt

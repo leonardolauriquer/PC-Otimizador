@@ -3,7 +3,7 @@
 # Seguro: nao apaga Documents/Pictures/Downloads/Desktop.
 set -u
 
-VERSION="5.7-macos"
+VERSION="5.9-macos"
 DRY_RUN=0
 AUTO_YES=0
 LANG_UI="${LANG_UI:-pt}"
@@ -13,8 +13,27 @@ CANCEL_FILE="${TMPDIR:-/tmp}/pc-otimizador-cancel.flag"
 TMP_ROOT="${TMPDIR:-/tmp}"
 SESSION_LOG=""
 FREED_KB=0
+LOCK_DIR="${LOG_DIR}/execution.lock"
 
 mkdir -p "$LOG_DIR"
+
+acquire_lock() {
+  if [[ -d "$LOCK_DIR" ]]; then
+    local old=""; [[ -f "$LOCK_DIR/pid" ]] && old="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+    if [[ "$old" =~ ^[0-9]+$ ]] && kill -0 "$old" 2>/dev/null; then log "Outra otimizacao ja esta em execucao (PID $old)" ERROR; return 1; fi
+    rm -rf "$LOCK_DIR" 2>/dev/null || return 1
+  fi
+  mkdir "$LOCK_DIR" || return 1; printf '%s' "$$" >"$LOCK_DIR/pid"
+}
+release_lock() { rm -rf "$LOCK_DIR" 2>/dev/null || true; }
+run_bounded() {
+  local seconds="$1"; shift
+  "$@" & local pid=$!
+  ( sleep "$seconds"; kill -TERM "$pid" 2>/dev/null || true ) & local watchdog=$!
+  wait "$pid"; local rc=$?
+  kill "$watchdog" 2>/dev/null || true; wait "$watchdog" 2>/dev/null || true
+  return "$rc"
+}
 
 log() {
   local level="${2:-INFO}"
@@ -116,9 +135,9 @@ safe_rm_tree() {
     FREED_KB=$((FREED_KB + kb)); return 0
   fi
   if [[ -d "$p" ]]; then
-    find "$p" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+    find "$p" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || { log "Falha ao limpar: $p" ERROR; return 1; }
   else
-    rm -f "$p" 2>/dev/null || true
+    rm -f "$p" 2>/dev/null || { log "Falha ao remover: $p" ERROR; return 1; }
   fi
   local after delta
   after="$(kb_of_path "$p")"
@@ -217,15 +236,15 @@ act_user_cache() {
 }
 
 act_brew() {
-  if ! command -v brew >/dev/null; then log "Homebrew nao instalado"; return 0; fi
+  if ! command -v brew >/dev/null; then log "Homebrew nao instalado"; return 20; fi
   if (( DRY_RUN == 1 )); then log "[DRY-RUN] brew cleanup -s"; return 0; fi
-  brew cleanup -s 2>/dev/null || log "brew cleanup falhou" WARN
+  run_bounded 300 brew cleanup -s 2>/dev/null || { log "brew cleanup falhou ou excedeu 300s" ERROR; return 1; }
 }
 
 act_dns() {
   if (( DRY_RUN == 1 )); then log "[DRY-RUN] dscacheutil -flushcache + mDNSResponder"; return 0; fi
-  dscacheutil -flushcache 2>/dev/null || true
-  sudo killall -HUP mDNSResponder 2>/dev/null || log "DNS flush parcial (sudo?)" WARN
+  dscacheutil -flushcache 2>/dev/null || { log "dscacheutil falhou" ERROR; return 1; }
+  sudo killall -HUP mDNSResponder 2>/dev/null || { log "mDNSResponder falhou (sudo?)" ERROR; return 1; }
   log "DNS flush macOS"
 }
 
@@ -297,8 +316,10 @@ run_preset() {
   local name="$1"
   local ids=( $(preset_ids "$name") )
   local total=${#ids[@]} i=0 id
-  local cancelled=0
+  local cancelled=0 failed=0 succeeded=0 skipped=0 rc=0
   FREED_KB=0
+  acquire_lock || { printf '##DONE##|BLOCKED|CONCURRENT\n'; return 3; }
+  trap release_lock EXIT INT TERM
   reset_cancel
   init_log
   ensure_whitelist
@@ -310,7 +331,10 @@ run_preset() {
     cancel_requested && { log "Cancelado" WARN; cancelled=1; break; }
     i=$((i+1))
     progress "$i" "$total" "$(action_name "$id")"
-    run_action "$id"
+    run_action "$id"; rc=$?
+    if (( rc == 0 )); then succeeded=$((succeeded + 1)); printf '##ACTION##|%s|SUCCESS|1|verified\n' "$id"
+    elif (( rc == 20 )); then skipped=$((skipped + 1)); printf '##ACTION##|%s|SKIPPED|0|capability unavailable\n' "$id"
+    else failed=$((failed + 1)); printf '##ACTION##|%s|FAILED|1|see log\n' "$id"; fi
   done
   after="$(disk_free_gb)"
   read -r score grade _ <<<"$(health_score)"
@@ -318,7 +342,10 @@ run_preset() {
   log "$summary"
   finish_log "$summary"
   printf '##RESULT##|AFTER|%s|%s|%s\n' "$after" "$FREED_KB" "$score"
-  if (( cancelled == 1 )); then printf '##DONE##|CANCELLED\n'; return 2; fi
+  printf '##SUMMARY##|SUCCESS=%s|SKIPPED=%s|FAILED=%s|TOTAL=%s\n' "$succeeded" "$skipped" "$failed" "$total"
+  if (( cancelled == 1 )); then release_lock; printf '##DONE##|CANCELLED\n'; return 2; fi
+  if (( failed > 0 )); then release_lock; printf '##DONE##|FAILED\n'; return 1; fi
+  release_lock
   printf '##DONE##|OK\n'
 }
 

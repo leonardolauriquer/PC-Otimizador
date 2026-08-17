@@ -18,6 +18,7 @@ _pack/
 
 # Compiled binary (rebuild with Compilar-EXE.ps1)
 PC-Otimizador.exe
+hardware-contract.json
 
 # Local friend pack copy (regenerate anytime)
 Para-o-Amigo/

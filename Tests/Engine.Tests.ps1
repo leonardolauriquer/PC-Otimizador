@@ -11,7 +11,7 @@ function Assert-True([bool]$Cond, [string]$Name) {
   else { Write-Host "  FAIL $Name" -ForegroundColor Red; $script:failed++ }
 }
 
-Write-Host '== Engine tests v5.7 ==' -ForegroundColor Cyan
+Write-Host '== Engine tests v5.9 ==' -ForegroundColor Cyan
 Assert-True (Test-Path function:Get-HealthScore) 'Get-HealthScore'
 Assert-True (Test-Path function:Get-DriveMediaInfo) 'Get-DriveMediaInfo'
 Assert-True (Test-Path function:Test-PathWhitelisted) 'Test-PathWhitelisted'
@@ -120,9 +120,18 @@ $r = Invoke-OptimizationBatch -Ids @('temp','dns') -Actions $actions -DryRun
 Assert-True ($r.FreedMB -eq 0) 'dry frees 0'
 Assert-True ($null -ne $r.Before -and $null -ne $r.After) 'before/after present'
 Assert-True ($null -ne $r.Health) 'health on result'
+Assert-True ($r.ActionResults.Count -eq 2 -and @($r.ActionResults | Where-Object Status -eq 'SKIPPED').Count -eq 2) 'dry-run reports every action as skipped'
 
 $blocked = Invoke-OptimizationBatch -Ids @('upgrade') -Actions @{ upgrade = @{ Nome = 'Upgrade'; Act = { return 1 } } }
 Assert-True ($blocked.Blocked) 'high risk blocked without capability'
+Assert-True ($blocked.ActionResults.Count -eq 1 -and $blocked.ActionResults[0].Status -eq 'BLOCKED') 'blocked action has explicit contract result'
+
+Assert-True (Test-AllowedTweakRegistry -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name 'VisualFXSetting') 'allowlist accepts known visual tweak'
+Assert-True (Test-AllowedTweakRegistry -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR' -Name 'AppCaptureEnabled') 'allowlist accepts underscore registry names'
+Assert-True (-not (Test-AllowedTweakRegistry -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name 'Userinit')) 'allowlist rejects arbitrary registry'
+Assert-True (Test-NagleRestorePath 'Microsoft.PowerShell.Core\Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee') 'nagle allowlist accepts interface path'
+Assert-True (-not (Test-NagleRestorePath 'HKLM:\SOFTWARE\Evil\Interfaces\aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')) 'nagle allowlist rejects other keys'
+Assert-True ((Test-Ipv4Address '1.1.1.1') -and -not (Test-Ipv4Address '999.1.1.1') -and -not (Test-Ipv4Address '1.1.1')) 'IPv4 restore validator'
 
 if ($failed -eq 0) { Write-Host "`nALL TESTS PASSED" -ForegroundColor Green; exit 0 }
 Write-Host "`n$failed FAILED" -ForegroundColor Red; exit 1
