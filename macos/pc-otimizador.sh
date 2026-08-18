@@ -3,7 +3,7 @@
 # Seguro: nao apaga Documents/Pictures/Downloads/Desktop.
 set -u
 
-VERSION="5.10-macos"
+VERSION="5.10.1-macos"
 DRY_RUN=0
 AUTO_YES=0
 LANG_UI="${LANG_UI:-pt}"

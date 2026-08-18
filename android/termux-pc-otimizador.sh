@@ -4,7 +4,7 @@
 # Sem root NAO limpa cache de outros apps nem "otimiza o telefone inteiro".
 set -u
 
-VERSION="5.10-android-termux"
+VERSION="5.10.1-android-termux"
 DRY_RUN=0
 AUTO_YES=0
 LOG_DIR="${HOME}/.pc-otimizador-logs"

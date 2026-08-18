@@ -16,7 +16,11 @@ PC-Otimizador.ps2exe.*
 _pack/
 *.zip
 
-# Compiled binary (rebuild with Compilar-EXE.ps1)
+# Build leftovers / AV bait
+.build/
+AssemblyInfo.generated.cs
+*.res
+app.generated.rc
 PC-Otimizador.exe
 hardware-contract.json
 

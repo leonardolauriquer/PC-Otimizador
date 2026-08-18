@@ -50,6 +50,15 @@ Assert-Contains $android 'fora do sandbox Termux' 'Termux sandbox guard'
 Assert-NotContains (($json.windows.safe -join '|')) 'recycle' 'Windows safe excludes recycle'
 Assert-NotContains (($json.windows.safe -join '|')) 'cleanmgr' 'Windows safe excludes CleanMgr'
 Assert-Contains ([string]$json.risk_actions.upgrade) 'high' 'Upgrade risk is high'
+$asm = Get-Content -Raw (Join-Path $root 'AssemblyInfo.cs')
+$compile = Get-Content -Raw (Join-Path $root 'Compilar-EXE.ps1')
+Assert-Contains $asm 'AssemblyTitle("PC Otimizador Pro")' 'EXE assembly title metadata'
+Assert-Contains $asm 'github.com/leonardolauriquer/PC-Otimizador' 'EXE description links to source repo'
+$verFile = (Get-Content -Raw (Join-Path $root 'VERSION')).Trim()
+Assert-Contains $asm ('AssemblyInformationalVersion("{0}")' -f $verFile) 'Assembly version matches VERSION'
+Assert-Contains $compile 'AssemblyInfo.generated.cs' 'Compile stamps VERSION into assembly metadata'
+Assert-Contains $compile 'NAO usa ps2exe' 'Local compile is native C# not ps2exe'
+Assert-Contains (Get-Content -Raw (Join-Path $root 'Tests\Gui.Layout.Tests.ps1')) '.build' 'GUI layout tests do not compile into %TEMP%'
 Assert-Contains $gui 'class GlowProgress' 'GUI glow progress control'
 Assert-Contains $gui 'Segoe Fluent Icons' 'GUI official Microsoft Fluent icons'
 Assert-Contains $gui 'TableLayoutPanel' 'GUI responsive preset grid'

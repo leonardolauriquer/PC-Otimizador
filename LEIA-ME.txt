@@ -1,4 +1,4 @@
-PC OTIMIZADOR PRO v5.10.0
+PC OTIMIZADOR PRO v5.10.1
 ======================
 Executar.bat (Admin)  ou  G = GUI dashboard
 
@@ -9,3 +9,7 @@ Na GUI, cada perfil abre Recusar / Concordo com a lista e o tamanho estimado.
 Limpeza Segura nao esvazia a Lixeira nem executa CleanMgr.
 Documentos/Fotos/Downloads/Musica/OneDrive ficam fora da allowlist de limpeza.
 Logs: Documentos\PC-Otimizador-Logs
+
+Se o antivirus quarentenar PC-Otimizador.exe (ex.: Gen:Variant.AsyncRAT),
+e falso positivo tipico em EXE sem certificado. Use Executar.bat ou restaure
+o arquivo e confira o SHA256 da release no GitHub.

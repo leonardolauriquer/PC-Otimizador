@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Linux-Bash-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux">
   <img src="https://img.shields.io/badge/macOS-Bash-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Android-Termux-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
-  <img src="https://img.shields.io/badge/v5.10.0-Faster%20cleanup-0d9488?style=for-the-badge" alt="v5.10.0">
+  <img src="https://img.shields.io/badge/v5.10.1-EXE%20identity-0d9488?style=for-the-badge" alt="v5.10.1">
   <img src="https://img.shields.io/badge/Licença-MIT-22c55e?style=for-the-badge" alt="MIT">
 </p>
 
@@ -70,7 +70,11 @@ Detalhes: [`core/README.md`](core/README.md) · [`core/SECURITY.md`](core/SECURI
 3. Digite **`1`** (Limpeza Segura) e confirme com **`CONCORDO`**  
    Na GUI: revise a lista, **Recusar** ou **Concordo — executar** · **`H`** = Health Score
 
-> Anti-AV: use **`Executar.bat`**. O `.exe` é GUI C# nativa (sem ps2exe).
+> Anti-AV: use **`Executar.bat`**. O `.exe` é GUI C# nativa (sem ps2exe). Heurísticas como `Gen:Variant.AsyncRAT` em builds **sem Authenticode** são falso positivo comum — não é um RAT. Restaure da quarentena, confira o hash da [release](https://github.com/leonardolauriquer/PC-Otimizador/releases/latest) e prefira o ZIP oficial. Envie o amostra ao fornecedor do antivírus se continuar.
+
+### Falso positivo antivírus
+
+O executável pede administrador, inicia PowerShell visível só para o motor e altera caches/registro com consentimento. Isso se parece com o que um RAT faz, então assinaturas genéricas disparam. Mitigações reais: certificado Authenticode no CI, metadados Win32 (nome/versão/copyright) e **não** empacotar com ps2exe. Não dá para “esconder” o comportamento sem mentir para o Windows.
 
 ### Linux
 
@@ -100,7 +104,13 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 
 ---
 
-## Novidades v5.10.0
+## Novidades v5.10.1
+
+- **EXE com identidade Win32:** nome, versão, copyright e link do repositório no binário (sem ps2exe).
+- **Menos isca para antivírus em teste:** o contrato de layout da GUI não gera mais `.exe` em `%TEMP%`.
+- **CI usa o mesmo Compilar-EXE.ps1** da máquina local, com metadados e manifesto alinhados.
+
+### Incluído desde v5.10.0
 
 - **Menos I/O:** estimativa de pastas com teto de tempo; a GUI não revarre o disco no motor (`-StreamProgress`).
 - **Consentimento imediato:** Recusar/Concordo abre na hora; os MB entram em segundo plano.
@@ -299,8 +309,8 @@ powershell -ExecutionPolicy Bypass -File .\Compilar-EXE.ps1
 ```
 
 ```bash
-git tag v5.10.0
-git push origin v5.10.0
+git tag v5.10.1
+git push origin v5.10.1
 # Actions: testes Windows + smoke Bash → ZIP + SHA256SUMS.txt
 ```
 

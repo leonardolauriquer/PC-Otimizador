@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g. v5.10.0)'
+        description: 'Version tag (e.g. v5.10.1)'
         required: true
-        default: 'v5.10.0'
+        default: 'v5.10.1'
 
 permissions:
   contents: read
@@ -89,11 +89,7 @@ jobs:
       - name: Compile GUI
         shell: pwsh
         run: |
-          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-          & $csc /nologo /target:winexe /optimize+ /platform:anycpu `
-            /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Management.dll `
-            /win32manifest:app.manifest /out:PC-Otimizador.exe GuiNative.cs
-          if ($LASTEXITCODE -ne 0) { throw 'csc failed' }
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\Compilar-EXE.ps1
 
       - name: Authenticode sign when certificate is configured
         if: ${{ env.SIGNING_PFX_BASE64 != '' }}

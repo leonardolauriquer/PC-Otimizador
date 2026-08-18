@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 <#
-  PC Otimizador Pro — CLI v5.10
+  PC Otimizador Pro — CLI v5.10.1
   -Preset safe|gamer|net|full|notebook
   -Mode menu|custom|scan|schedule|unschedule
   -DryRun -EstimateOnly -AutoYes -Lang pt|en
@@ -116,7 +116,7 @@ function Write-Banner {
   $s = Get-SystemSnapshot
   Write-Host ''
   Write-Host '  ============================================================' -ForegroundColor DarkCyan
-  Write-Host '       PC OTIMIZADOR PRO  ·  v5.10' -ForegroundColor Cyan
+  Write-Host '       PC OTIMIZADOR PRO  ·  v5.10.1' -ForegroundColor Cyan
   Write-Host '  ============================================================' -ForegroundColor DarkCyan
   Write-Host ("  {0} | {1} | Disco {2} GB livres ({3}% usado)" -f $s.PC, $s.OS, $s.DiskFree, $s.DiskUsed) -ForegroundColor DarkGray
   Write-Host '  Nao apaga Documentos/Fotos/Downloads. Digite ? para ajuda.' -ForegroundColor DarkGreen
