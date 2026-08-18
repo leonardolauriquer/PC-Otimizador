@@ -31,7 +31,7 @@ if "%UP%"=="2" (
 cls
 echo.
 echo   ============================================================
-echo        PC OTIMIZADOR PRO  v5.10.1
+echo        PC OTIMIZADOR PRO  v5.10.2
 echo   ============================================================
 echo.
 echo   Dica: 1 = mais seguro. 8 = so simula. G = tela com ajuda.

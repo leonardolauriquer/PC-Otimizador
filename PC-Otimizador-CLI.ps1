@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 <#
-  PC Otimizador Pro — CLI v5.10.1
+  PC Otimizador Pro — CLI v5.10.2
   -Preset safe|gamer|net|full|notebook
   -Mode menu|custom|scan|schedule|unschedule
   -DryRun -EstimateOnly -AutoYes -Lang pt|en
@@ -116,7 +116,7 @@ function Write-Banner {
   $s = Get-SystemSnapshot
   Write-Host ''
   Write-Host '  ============================================================' -ForegroundColor DarkCyan
-  Write-Host '       PC OTIMIZADOR PRO  ·  v5.10.1' -ForegroundColor Cyan
+  Write-Host '       PC OTIMIZADOR PRO  ·  v5.10.2' -ForegroundColor Cyan
   Write-Host '  ============================================================' -ForegroundColor DarkCyan
   Write-Host ("  {0} | {1} | Disco {2} GB livres ({3}% usado)" -f $s.PC, $s.OS, $s.DiskFree, $s.DiskUsed) -ForegroundColor DarkGray
   Write-Host '  Nao apaga Documentos/Fotos/Downloads. Digite ? para ajuda.' -ForegroundColor DarkGreen
@@ -131,9 +131,9 @@ function Show-HelpScreen {
   Write-Host '  ============================================================' -ForegroundColor Cyan
   Write-Host ''
   Write-Host '  Limpeza Segura (1)  ' -NoNewline -ForegroundColor Green
-  Write-Host 'Temp, lixeira, caches. Ideal na 1a vez.'
-  Write-Host '  Dry-run / D         ' -NoNewline -ForegroundColor Yellow
-  Write-Host 'Simula sem apagar. Use antes de Executar.'
+  Write-Host 'Temp e caches regeneraveis. Nao esvazia a Lixeira.'
+  Write-Host '  Dry-run (8)         ' -NoNewline -ForegroundColor Yellow
+  Write-Host 'Simula a Limpeza Segura sem apagar.'
   Write-Host '  Turbo/Gamer (2)     ' -NoNewline -ForegroundColor Red
   Write-Host 'Pode mudar DNS e plano Alto Desempenho.'
   Write-Host '  Internet (3)        ' -NoNewline -ForegroundColor Red
@@ -144,8 +144,10 @@ function Show-HelpScreen {
   Write-Host 'So medem (nota 0-100 / MB estimados).'
   Write-Host '  Whitelist (W)       ' -NoNewline -ForegroundColor Cyan
   Write-Host 'Pastas protegidas — nunca apagadas.'
-  Write-Host '  Agendar (8)         ' -NoNewline -ForegroundColor White
-  Write-Host 'Domingo 10h, so Limpeza Segura.'
+  Write-Host '  Agendar (9)         ' -NoNewline -ForegroundColor White
+  Write-Host 'Limpeza semanal (padrao: domingo 10h, so SAFE).'
+  Write-Host '  Remover agenda (R)  ' -NoNewline -ForegroundColor White
+  Write-Host 'Cancela a tarefa semanal.'
   Write-Host '  Bloat (B)           ' -NoNewline -ForegroundColor Yellow
   Write-Host 'Lista apps; so remove se voce confirmar.'
   Write-Host ''
@@ -402,15 +404,16 @@ while ($true) {
   Clear-Menu; Write-Banner
   Write-Host '  MENU PRINCIPAL  (digite ? para ajuda)' -ForegroundColor Cyan
   Write-Host '  ----------------------------------------------------------' -ForegroundColor DarkGray
-  Write-Host '   1. Limpeza Segura ★     ' -NoNewline -ForegroundColor Green; Write-Host 'temp/lixeira/caches (recomendado)' -ForegroundColor DarkGray
+  Write-Host '   1. Limpeza Segura ★     ' -NoNewline -ForegroundColor Green; Write-Host 'temp/caches regeneraveis (recomendado)' -ForegroundColor DarkGray
   Write-Host '   2. Turbo / Gamer        ' -NoNewline -ForegroundColor White; Write-Host 'RISK: DNS/energia' -ForegroundColor DarkYellow
   Write-Host '   3. Reparar Internet     ' -NoNewline -ForegroundColor White; Write-Host 'RISK: DNS/IP' -ForegroundColor DarkYellow
   Write-Host '   4. Preset Completo      ' -NoNewline -ForegroundColor White; Write-Host 'limpeza ampla' -ForegroundColor DarkGray
   Write-Host '   5. Notebook (bateria)   ' -NoNewline -ForegroundColor Cyan; Write-Host 'plano equilibrado' -ForegroundColor DarkGray
   Write-Host '   6. Personalizar         ' -NoNewline -ForegroundColor Cyan; Write-Host 'escolhe item a item' -ForegroundColor DarkGray
   Write-Host '   7. So varrer / estimar  ' -NoNewline -ForegroundColor DarkYellow; Write-Host 'nao apaga' -ForegroundColor DarkGray
-  Write-Host '   8. Agendar semanal      ' -NoNewline -ForegroundColor White; Write-Host 'domingo 10h SAFE' -ForegroundColor DarkGray
-  Write-Host '   9. Remover agendamento' -ForegroundColor DarkGray
+  Write-Host '   8. Dry-run Limpeza Segura' -NoNewline -ForegroundColor Yellow; Write-Host ' simula sem apagar' -ForegroundColor DarkGray
+  Write-Host '   9. Agendar semanal      ' -NoNewline -ForegroundColor White; Write-Host 'domingo 10h SAFE' -ForegroundColor DarkGray
+  Write-Host '   R. Remover agendamento' -ForegroundColor DarkGray
   Write-Host '   H. Health Score         ' -NoNewline -ForegroundColor Cyan; Write-Host 'nota 0-100' -ForegroundColor DarkGray
   Write-Host '   W. Whitelist            ' -NoNewline -ForegroundColor Cyan; Write-Host 'pastas protegidas' -ForegroundColor DarkGray
   Write-Host '   B. Bloatware            ' -NoNewline -ForegroundColor Yellow; Write-Host 'lista + confirma' -ForegroundColor DarkGray
@@ -436,11 +439,15 @@ while ($true) {
       [void](Read-Host 'Enter')
     }
     '8' {
+      Write-Host '  Dry-run Limpeza Segura: simula, nao apaga.' -ForegroundColor Yellow
+      Invoke-SelectedRun (Get-PresetIds 'safe') -AsDry
+    }
+    '9' {
       Write-Host '  Agenda so Limpeza Segura (sem DNS/energia), domingo 10h.' -ForegroundColor Yellow
       if (Confirm-Go 'Criar agendamento?') { Register-WeeklyCleanup }
       [void](Read-Host 'Enter')
     }
-    '9' { Unregister-WeeklyCleanup; [void](Read-Host 'Enter') }
+    'r' { Unregister-WeeklyCleanup; [void](Read-Host 'Enter') }
     'h' {
       $h = Get-HealthScore; $m = Get-DriveMediaInfo
       Write-Host ("  Score {0}/100 ({1}) | Disco {2}% | Lixo~{3}MB" -f $h.Score, $h.Grade, $h.DiskUsed, $h.JunkMB) -ForegroundColor Cyan

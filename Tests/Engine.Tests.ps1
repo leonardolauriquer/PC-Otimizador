@@ -11,7 +11,7 @@ function Assert-True([bool]$Cond, [string]$Name) {
   else { Write-Host "  FAIL $Name" -ForegroundColor Red; $script:failed++ }
 }
 
-Write-Host '== Engine tests v5.10.1 ==' -ForegroundColor Cyan
+Write-Host '== Engine tests v5.10.2 ==' -ForegroundColor Cyan
 Assert-True (Test-Path function:Get-HealthScore) 'Get-HealthScore'
 Assert-True (Test-Path function:Get-DriveMediaInfo) 'Get-DriveMediaInfo'
 Assert-True (Test-Path function:Test-PathWhitelisted) 'Test-PathWhitelisted'
@@ -66,11 +66,14 @@ $h = Get-HealthScore
 Assert-True ($h.Score -ge 0 -and $h.Score -le 100) 'health score range'
 Assert-True ($h.Grade -match '^[A-E]$') 'health grade'
 
-Reset-CancelFlag
+Reset-CancelFlag -Force
 Assert-True (-not (Test-CancelRequested)) 'cancel cleared'
 Request-Cancel
 Assert-True (Test-CancelRequested) 'cancel set'
 Reset-CancelFlag
+Assert-True (Test-CancelRequested) 'recent cancel flag survives engine start'
+Reset-CancelFlag -Force
+Assert-True (-not (Test-CancelRequested)) 'force-clear removes cancel flag'
 
 $m = Get-DriveMediaInfo
 Assert-True ($null -ne $m) 'media info'
@@ -141,6 +144,23 @@ Assert-True (-not (Test-ChromiumCacheTarget (Join-Path $env:LOCALAPPDATA 'Google
 Assert-True ((Get-FolderSizeMB -Path $PSScriptRoot -BudgetMs 80) -ge 0) 'bounded folder size returns'
 $cacheCfg = Get-CachePathConfig
 Assert-True ($null -ne $cacheCfg -and @($cacheCfg.chromiumUserData).Count -ge 4) 'cache-paths.json loads'
+
+Assert-True (Test-Path function:Get-RecycleBinSizeBytes) 'recycle bin size helper'
+Assert-True ((Get-RecycleBinSizeBytes) -ge -1) 'recycle bin size is measurable or unknown'
+Assert-True (Test-NonFatalBatchAction 'restore') 'restore miss is non-fatal'
+Assert-True (Test-NonFatalBatchAction 'arp') 'arp miss is non-fatal'
+Assert-True (-not (Test-NonFatalBatchAction 'temp')) 'temp remains a critical action'
+
+$optionalMiss = Invoke-OptimizationBatch -Ids @('restore','temp') -Actions @{
+  restore = @{ Nome = 'Restore'; Act = { throw 'restore point throttle' } }
+  temp = @{ Nome = 'Temp'; Act = { return 2 } }
+} -SkipSizeWalk
+Assert-True (-not $optionalMiss.Failed) 'optional restore miss does not fail the batch'
+Assert-True (@($optionalMiss.ActionResults | Where-Object { $_.Id -eq 'temp' -and $_.Status -eq 'SUCCESS' }).Count -eq 1) 'later actions still succeed after restore miss'
+Assert-True (@($optionalMiss.ActionResults | Where-Object { $_.Id -eq 'restore' -and $_.Status -in @('PARTIAL','SKIPPED') }).Count -eq 1) 'restore miss is partial or skipped'
+
+$criticalFail = Invoke-OptimizationBatch -Ids @('temp') -Actions @{ temp = @{ Nome = 'Temp'; Act = { throw 'disk full' } } } -SkipSizeWalk
+Assert-True $criticalFail.Failed 'critical action failure still fails the batch'
 
 if ($failed -eq 0) { Write-Host "`nALL TESTS PASSED" -ForegroundColor Green; exit 0 }
 Write-Host "`n$failed FAILED" -ForegroundColor Red; exit 1

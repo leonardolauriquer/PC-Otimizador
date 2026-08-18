@@ -84,6 +84,8 @@ namespace PCOtimizador
             { "card.scan.sub", new[] { "Mostra o espaço que poderia ser liberado", "Shows how much space could be freed" } },
             { "card.schedule.title", new[] { "Agendar", "Schedule" } },
             { "card.schedule.sub", new[] { "Dia, hora e as ações que você autorizar", "Day, time and the actions you authorize" } },
+            { "card.unschedule.title", new[] { "Remover agenda", "Remove schedule" } },
+            { "card.unschedule.sub", new[] { "Cancela a limpeza semanal agendada", "Cancels the weekly scheduled cleanup" } },
             { "card.logs.title", new[] { "Abrir logs", "Open logs" } },
             { "card.logs.sub", new[] { "Histórico das sessões", "Session history" } },
             { "card.run", new[] { "ABRIR", "OPEN" } },
@@ -112,6 +114,7 @@ namespace PCOtimizador
             { "button.health", new[] { "Ver pontuação de saúde", "View health score" } },
             { "button.scan", new[] { "Estimar espaço", "Estimate space" } },
             { "button.schedule", new[] { "Agendar rotina", "Schedule routine" } },
+            { "button.unschedule", new[] { "Remover agenda", "Remove schedule" } },
             { "button.logs", new[] { "Abrir pasta de registros", "Open log folder" } },
             { "button.refreshDevice", new[] { "ATUALIZAR DADOS", "REFRESH DATA" } },
             { "device.loading", new[] { "Coletando informações...", "Collecting information..." } },
@@ -1872,6 +1875,8 @@ namespace PCOtimizador
         int _deviceRequestId;
         bool _showRunSummary;
         ActionRunReport _runReport;
+        string _lastLogMsg = "";
+        string _pendingNotice = "";
 
         static readonly Color Bg = Color.FromArgb(4, 8, 14);
         static readonly Color PanelBg = Color.FromArgb(6, 13, 22);
@@ -1993,7 +1998,7 @@ namespace PCOtimizador
             if (_protectLabel != null) _protectLabel.Text = T("nav.protection");
             if (_telemetryToggle != null) _telemetryToggle.Text = T(_telemetryToggle.Checked ? "settings.telemetry.on" : "settings.telemetry.off");
             if (_btnCancel != null) _btnCancel.Text = T("cancel");
-            if (_statusLabel != null && !string.IsNullOrWhiteSpace(_statusLabel.Text)) _statusLabel.Text = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + T("status.activity");
+            if (_statusLabel != null && !string.IsNullOrWhiteSpace(_lastLogMsg)) _statusLabel.Text = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + _lastLogMsg;
             if (_taskLabel != null && !_running) _taskLabel.Text = T("task.ready");
             if (_beforeAfter != null && !_running) _beforeAfter.Text = T("stats.empty");
             if (_healthLabel != null && !_running && _healthScore == 0) _healthLabel.Text = T("health.empty");
@@ -2227,6 +2232,8 @@ namespace PCOtimizador
                     var b = child as Button;
                     if (b != null && b.Tag is string && (string)b.Tag == "startup-schedule")
                         b.Bounds = new Rectangle(230, Math.Max(120, ph - 48), 160, 36);
+                    if (b != null && b.Tag is string && (string)b.Tag == "startup-unschedule")
+                        b.Bounds = new Rectangle(400, Math.Max(120, ph - 48), 160, 36);
                     if (child is Label && child.Top == 18) child.Width = Math.Max(160, pw - 220);
                 }
             }
@@ -2261,6 +2268,8 @@ namespace PCOtimizador
         {
             var upd = Path.Combine(_root, "Update.ps1");
             if (!File.Exists(upd)) { LogLine(Local(_english, "Atualizador ausente nesta pasta.", "Updater is missing from this folder.")); return; }
+            bool alreadyRunning = _running;
+            _running = true;
             _taskLabel.Text = T("task.update.checking");
             _statusLabel.Text = T("status.update.checking");
             Application.DoEvents();
@@ -2298,6 +2307,12 @@ namespace PCOtimizador
                     int code = p.ExitCode;
                     if (code == 10)
                     {
+                        if (alreadyRunning || (_proc != null && !_proc.HasExited))
+                        {
+                            LogLine(Local(_english, "Atualização encontrada, mas uma tarefa ainda está em andamento. Reinicie o app depois para aplicar.", "An update was found, but a job is still running. Restart the app later to apply it."));
+                            _taskLabel.Text = T("task.ready");
+                            return;
+                        }
                         MessageBox.Show(Local(_english, "Nova versão encontrada.\nO programa vai fechar e atualizar sozinho.", "A new version was found.\nThe app will close and update automatically."), Local(_english, "Atualização obrigatória", "Required update"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                         Application.Exit(); return;
                     }
@@ -2311,6 +2326,7 @@ namespace PCOtimizador
                 }
             }
             catch (Exception ex) { LogLine(Local(_english, "Verificação de atualização: ", "Update check: ") + ex.Message); _taskLabel.Text = T("task.update.offline"); }
+            finally { if (!IsDisposed) _running = alreadyRunning; }
         }
 
         void BuildSidebar()
@@ -2521,6 +2537,10 @@ namespace PCOtimizador
             scheduleBtn.Click += (s, e) => ScheduleWeekly();
             scheduleBtn.Tag = "startup-schedule";
             page.Controls.Add(scheduleBtn);
+            var unscheduleBtn = Register(FlatBtn(0, 0, 160, 36, "", Color.FromArgb(30, 41, 59)), "button.unschedule");
+            unscheduleBtn.Click += (s, e) => UnscheduleWeekly();
+            unscheduleBtn.Tag = "startup-unschedule";
+            page.Controls.Add(unscheduleBtn);
         }
 
         void LoadStartupList()
@@ -2578,6 +2598,7 @@ namespace PCOtimizador
             _toolsFlow.Controls.Add(ToolCard("card.health.title", "card.health.sub", "shield", () => { ShowPage("inicio"); RefreshHealthAsync(); }));
             _toolsFlow.Controls.Add(ToolCard("card.scan.title", "card.scan.sub", "drive", () => RunCli("-Mode scan -AutoYes")));
             _toolsFlow.Controls.Add(ToolCard("card.schedule.title", "card.schedule.sub", "clock", () => ScheduleWeekly()));
+            _toolsFlow.Controls.Add(ToolCard("card.unschedule.title", "card.unschedule.sub", "clock", () => UnscheduleWeekly()));
             _toolsFlow.Controls.Add(ToolCard("card.undo.title", "card.undo.sub", "shield", UndoTweaks));
             _toolsFlow.Controls.Add(ToolCard("card.logs.title", "card.logs.sub", "folder", OpenLogsFolder));
             page.Controls.Add(_toolsFlow);
@@ -2910,8 +2931,21 @@ namespace PCOtimizador
                     if (ActionCatalog.Get(id).IsHigh) high = true;
                 var args = "-Mode schedule -AutoYes -ScheduleDay " + dlg.Day + " -ScheduleTime \"" + dlg.TimeOfDay + "\" -Actions \"" + ActionIdGuard.Join(dlg.SelectedIds) + "\"";
                 if (high) args += " -AllowHighRisk";
-                RunCli(args);
+                _pendingNotice = Local(_english,
+                    "Limpeza semanal agendada para " + dlg.Day + " às " + dlg.TimeOfDay + ".\nRoda somente enquanto você estiver conectado.\nUse Remover agenda para cancelar.",
+                    "Weekly cleanup scheduled for " + dlg.Day + " at " + dlg.TimeOfDay + ".\nIt runs only while you are signed in.\nUse Remove schedule to cancel.");
+                RunCli(args, false);
             }
+        }
+
+        void UnscheduleWeekly()
+        {
+            string message = Local(_english,
+                "Remover a limpeza semanal agendada?\nRecusar cancela.",
+                "Remove the weekly scheduled cleanup?\nDecline cancels.");
+            if (MessageBox.Show(message, T("card.unschedule.title"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            _pendingNotice = Local(_english, "Agendamento semanal removido.", "Weekly schedule removed.");
+            RunCli("-Mode unschedule -AutoYes", false);
         }
 
         void UndoTweaks()
@@ -3049,7 +3083,10 @@ namespace PCOtimizador
 
         void RunCli(string extraArgs)
         {
-            RunCli(extraArgs, extraArgs.IndexOf("-Actions", StringComparison.OrdinalIgnoreCase) >= 0);
+            bool showSummary = extraArgs.IndexOf("-Actions", StringComparison.OrdinalIgnoreCase) >= 0
+                && extraArgs.IndexOf("-Mode schedule", StringComparison.OrdinalIgnoreCase) < 0
+                && extraArgs.IndexOf("-Mode unschedule", StringComparison.OrdinalIgnoreCase) < 0;
+            RunCli(extraArgs, showSummary);
         }
 
         void RunCli(string extraArgs, bool showSummary)
@@ -3081,12 +3118,12 @@ namespace PCOtimizador
             var psi = new ProcessStartInfo
             {
                 FileName = Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"),
-                Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + cli + "\" " + extraArgs,
+                Arguments = "-NoProfile -WindowStyle Minimized -ExecutionPolicy Bypass -File \"" + cli + "\" " + extraArgs,
                 WorkingDirectory = _root,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                CreateNoWindow = true,
+                CreateNoWindow = false,
                 StandardOutputEncoding = Encoding.UTF8
             };
             ThreadPool.QueueUserWorkItem(_ =>
@@ -3126,7 +3163,11 @@ namespace PCOtimizador
                             _pctLabel.Text = "100%"; _taskLabel.Text = Local(_english, "Concluído", "Completed"); _pctLabel.ForeColor = Accent;
                         }
                         HighlightNav("inicio");
-                        if (_showRunSummary && _runReport != null)
+                        if (!string.IsNullOrEmpty(_pendingNotice) && !_cancelRequested && exitCode == 0)
+                        {
+                            MessageBox.Show(_pendingNotice, T("app.title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }
+                        else if (_showRunSummary && _runReport != null)
                         {
                             using (var summary = new ResultDialog(_runReport, _english, _logsDir))
                                 summary.ShowDialog(this);
@@ -3135,6 +3176,7 @@ namespace PCOtimizador
                         {
                             MessageBox.Show(Local(_english, "A operação não foi concluída. Consulte o registro para detalhes.", "The operation did not complete. Check the log for details."), T("app.title"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                         }
+                        _pendingNotice = "";
                     }));
                 }
                 catch (Exception ex)
@@ -3232,7 +3274,8 @@ namespace PCOtimizador
 
         void LogLine(string msg)
         {
-            if (_statusLabel != null) _statusLabel.Text = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + (_english ? T("status.activity") : msg);
+            _lastLogMsg = msg ?? "";
+            if (_statusLabel != null) _statusLabel.Text = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + _lastLogMsg;
             try
             {
                 if (!Directory.Exists(_logsDir)) Directory.CreateDirectory(_logsDir);

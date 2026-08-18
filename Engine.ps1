@@ -570,17 +570,80 @@ function Invoke-CleanTemp {
   Write-Log "Temporarios: ~$freed MB"; return $freed
 }
 
+function Get-RecycleBinSizeBytes {
+  if (-not ('PCOtimizador.RecycleBinQuery' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace PCOtimizador {
+  [StructLayout(LayoutKind.Sequential, Pack = 8)]
+  public struct SHQUERYRBINFO {
+    public int cbSize;
+    public long i64Size;
+    public long i64NumItems;
+  }
+  public static class RecycleBinQuery {
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    public static extern int SHQueryRecycleBin(string pszRootPath, ref SHQUERYRBINFO pSHQueryRBInfo);
+  }
+}
+'@
+  }
+  try {
+    $info = New-Object PCOtimizador.SHQUERYRBINFO
+    $info.cbSize = [Runtime.InteropServices.Marshal]::SizeOf([type][PCOtimizador.SHQUERYRBINFO])
+    $hr = [PCOtimizador.RecycleBinQuery]::SHQueryRecycleBin($null, [ref]$info)
+    if ($hr -eq 0 -and $info.i64Size -ge 0) { return [int64]$info.i64Size }
+  } catch {}
+  try {
+    $bytes = [int64]0
+    $bin = (New-Object -ComObject Shell.Application).NameSpace(0xA)
+    if ($null -eq $bin) { return -1 }
+    foreach ($item in @($bin.Items())) {
+      try { $bytes += [int64]$item.Size } catch {}
+    }
+    return $bytes
+  } catch { return -1 }
+}
+
 function Invoke-CleanRecycleBin {
   Write-Log 'Esvaziando Lixeira...'
-  try { Clear-RecycleBin -Force -ErrorAction Stop; Write-Log 'Lixeira OK'; return 1 }
-  catch {
+  $before = Get-RecycleBinSizeBytes
+  if ($before -eq 0) { Write-Log 'Lixeira ja vazia'; return 0 }
+  $attempted = $false
+  try {
+    Clear-RecycleBin -Force -ErrorAction Stop
+    $attempted = $true
+  } catch {
     try {
-      (New-Object -ComObject Shell.Application).NameSpace(0xA).Items() | ForEach-Object {
-        Remove-Item $_.Path -Recurse -Force -ErrorAction SilentlyContinue
+      $bin = (New-Object -ComObject Shell.Application).NameSpace(0xA)
+      if ($null -eq $bin) { throw 'namespace da Lixeira indisponivel' }
+      foreach ($item in @($bin.Items())) {
+        try { Remove-Item -LiteralPath $item.Path -Recurse -Force -ErrorAction Stop } catch {
+          Remove-Item -LiteralPath $item.Path -Recurse -Force -ErrorAction SilentlyContinue
+        }
       }
-      Write-Log 'Lixeira OK'; return 1
-    } catch { Write-Log "Lixeira: $_" 'WARN'; return 0 }
+      $attempted = $true
+    } catch {
+      Write-Log "Lixeira: $($_.Exception.Message)" 'WARN'
+    }
   }
+  $after = Get-RecycleBinSizeBytes
+  if ($before -lt 0) {
+    if ($attempted) {
+      Add-ActionWarning 'Lixeira: exclusao tentada, mas o tamanho nao pode ser medido.'
+      return 0
+    }
+    throw 'Nao foi possivel esvaziar a Lixeira.'
+  }
+  $remaining = if ($after -lt 0) { $before } else { $after }
+  $freed = [math]::Max(0, [math]::Round(($before - $remaining) / 1MB, 2))
+  if ($remaining -gt 0 -and $remaining -ge [math]::Ceiling($before * 0.9)) {
+    throw 'A Lixeira nao esvaziou de forma observavel.'
+  }
+  if ($remaining -gt 0) { Add-ActionWarning ("Lixeira parcialmente esvaziada; restam ~{0} MB." -f [math]::Round($remaining / 1MB, 2)) }
+  Write-Log ("Lixeira: ~{0} MB" -f $freed)
+  return $freed
 }
 
 function Invoke-CleanUpdateCache {
@@ -918,7 +981,13 @@ function Invoke-FlushDNS {
 }
 
 function Invoke-FlushARP {
-  Write-Log 'Flush ARP...'; $null = Invoke-ExternalChecked 'arp.exe' @('-d','*') @(0) 'Limpeza ARP'; return 0
+  Write-Log 'Flush ARP...'
+  try {
+    $null = Invoke-ExternalChecked 'arp.exe' @('-d','*') @(0,1) 'Limpeza ARP'
+  } catch {
+    Add-ActionWarning ("ARP nao limpou todas as entradas (comum no Windows atual): {0}" -f $_.Exception.Message)
+  }
+  return 0
 }
 
 function Invoke-RenewIP {
@@ -1016,8 +1085,10 @@ function Invoke-DisableNagle {
 
 function Invoke-ClearNetBIOS {
   Write-Log 'Limpando cache NetBIOS...'
-  $null = Invoke-ExternalChecked 'nbtstat.exe' @('-R') @(0) 'NetBIOS cache'
-  $null = Invoke-ExternalChecked 'nbtstat.exe' @('-RR') @(0) 'NetBIOS refresh'
+  try { $null = Invoke-ExternalChecked 'nbtstat.exe' @('-R') @(0,1) 'NetBIOS cache' }
+  catch { Add-ActionWarning ("NetBIOS -R: {0}" -f $_.Exception.Message) }
+  try { $null = Invoke-ExternalChecked 'nbtstat.exe' @('-RR') @(0,1) 'NetBIOS refresh' }
+  catch { Add-ActionWarning ("NetBIOS -RR: {0}" -f $_.Exception.Message) }
   return 0
 }
 
@@ -1025,18 +1096,23 @@ function Invoke-ClearNetBIOS {
 function Invoke-RestorePoint {
   Write-Log 'Criando ponto de restauracao...'
   try { Enable-ComputerRestore -Drive 'C:\' -ErrorAction Stop } catch { Write-Log ("Protecao do Sistema: {0}" -f $_.Exception.Message) 'WARN' }
-  Invoke-WithFallback 'Ponto de restauracao' @(
-    { Checkpoint-Computer -Description 'PC Otimizador Pro' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop; return 0 },
-    {
-      if (-not (Test-CommandAvailable 'Get-WmiObject')) { throw 'WMI legado indisponivel' }
-      $sr = Get-WmiObject -List SystemRestore -Namespace root\default -ErrorAction Stop
-      $result = $sr.CreateRestorePoint('PC Otimizador Pro', 12, 100)
-      if ([int]$result.ReturnValue -ne 0) { throw ("SystemRestore retornou {0}" -f $result.ReturnValue) }
-      return 0
-    }
-  ) | Out-Null
-  Write-Log 'Ponto de restauracao criado e confirmado.'
-  return 0
+  try {
+    Invoke-WithFallback 'Ponto de restauracao' @(
+      { Checkpoint-Computer -Description 'PC Otimizador Pro' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop; return 0 },
+      {
+        if (-not (Test-CommandAvailable 'Get-WmiObject')) { throw 'WMI legado indisponivel' }
+        $sr = Get-WmiObject -List SystemRestore -Namespace root\default -ErrorAction Stop
+        $result = $sr.CreateRestorePoint('PC Otimizador Pro', 12, 100)
+        if ([int]$result.ReturnValue -ne 0) { throw ("SystemRestore retornou {0}" -f $result.ReturnValue) }
+        return 0
+      }
+    ) | Out-Null
+    Write-Log 'Ponto de restauracao criado e confirmado.'
+    return 0
+  } catch {
+    Add-ActionWarning ("Ponto de restauracao indisponivel (Protecao do Sistema desligada ou limite de 24h): {0}" -f $_.Exception.Message)
+    return 0
+  }
 }
 
 function Invoke-SFC {
@@ -1080,14 +1156,14 @@ function Get-T {
   param([string]$Key)
   $pt = @{
     dry='Simulacao (dry-run)'; done='Concluido'; logSaved='Log salvo em'
-    weeklyOk='Limpeza semanal agendada (domingo 10:00)'; weeklyOff='Agendamento semanal removido'
+    weeklyOk='Limpeza semanal agendada'; weeklyOff='Agendamento semanal removido'
     notebook='Perfil Notebook'; cancelled='Cancelado pelo usuario'; health='Health Score'
     ssd='SSD detectado'; hdd='HDD detectado'; whitelist='Whitelist'; bloat='Bloatware'
     before='Antes'; after='Depois'; scoreTip='0=ruim · 100=otimo'
   }
   $en = @{
     dry='Dry-run simulation'; done='Done'; logSaved='Log saved to'
-    weeklyOk='Weekly cleanup scheduled (Sunday 10:00)'; weeklyOff='Weekly schedule removed'
+    weeklyOk='Weekly cleanup scheduled'; weeklyOff='Weekly schedule removed'
     notebook='Notebook profile'; cancelled='Cancelled by user'; health='Health Score'
     ssd='SSD detected'; hdd='HDD detected'; whitelist='Whitelist'; bloat='Bloatware'
     before='Before'; after='After'; scoreTip='0=poor · 100=great'
@@ -1113,9 +1189,28 @@ function Test-CancelRequested {
   return $false
 }
 
+function Test-NonFatalBatchAction([string]$Id) {
+  return $Id -in @('restore','arp','netbios')
+}
+
 function Reset-CancelFlag {
+  param([switch]$Force)
   $script:CancelRequested = $false
-  Remove-Item -LiteralPath $script:CancelFile -Force -ErrorAction SilentlyContinue
+  if ($Force) {
+    Remove-Item -LiteralPath $script:CancelFile -Force -ErrorAction SilentlyContinue
+    return
+  }
+  if (Test-Path -LiteralPath $script:CancelFile) {
+    try {
+      $ageSec = ([DateTime]::UtcNow - (Get-Item -LiteralPath $script:CancelFile).LastWriteTimeUtc).TotalSeconds
+      if ($ageSec -ge 0 -and $ageSec -le 45) {
+        $script:CancelRequested = $true
+        Write-Log 'Cancelamento detectado antes do inicio do lote.' 'WARN'
+        return
+      }
+    } catch {}
+    Remove-Item -LiteralPath $script:CancelFile -Force -ErrorAction SilentlyContinue
+  }
 }
 
 function Request-Cancel {
@@ -1407,11 +1502,15 @@ function Invoke-OptimizationBatch {
       $null = Write-ActionResult $id $o.Nome $actionStatus $actionMessage
       $actionTimer.Stop(); $null = Submit-TelemetryEvent $id $actionStatus ([int]$actionTimer.ElapsedMilliseconds)
     } catch {
-      $failed = $true
       $errorMessage = $_.Exception.Message
       Write-Log "Erro $id : $errorMessage" 'ERROR'
       Undo-ActionTransaction
-      $contractStatus = if ($errorMessage -match 'indisponivel|ausente|nao suport|nenhum adaptador') { 'SKIPPED' } else { 'FAILED' }
+      $optional = Test-NonFatalBatchAction $id
+      $contractStatus = if ($optional) {
+        if ($errorMessage -match 'indisponivel|ausente|nao suport|nenhum adaptador|throttle|restauracao|restore point') { 'SKIPPED' } else { 'PARTIAL' }
+      } elseif ($errorMessage -match 'indisponivel|ausente|nao suport|nenhum adaptador') { 'SKIPPED' }
+      else { 'FAILED' }
+      if ($contractStatus -eq 'FAILED') { $failed = $true }
       $null = Write-ActionResult $id $o.Nome $contractStatus $errorMessage
       $actionTimer.Stop(); $failureCategory = if ($errorMessage -match 'permiss|acesso|admin') { 'permission' } elseif ($errorMessage -match 'indisponivel|ausente|suport') { 'unsupported' } elseif ($errorMessage -match 'limite|tempo|timeout') { 'timeout' } else { 'execution' }
       $null = Submit-TelemetryEvent $id $contractStatus ([int]$actionTimer.ElapsedMilliseconds) $failureCategory

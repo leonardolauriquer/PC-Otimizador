@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Linux-Bash-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux">
   <img src="https://img.shields.io/badge/macOS-Bash-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Android-Termux-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
-  <img src="https://img.shields.io/badge/v5.10.1-EXE%20identity-0d9488?style=for-the-badge" alt="v5.10.1">
+  <img src="https://img.shields.io/badge/v5.10.2-honest%20batch-0d9488?style=for-the-badge" alt="v5.10.2">
   <img src="https://img.shields.io/badge/Licença-MIT-22c55e?style=for-the-badge" alt="MIT">
 </p>
 
@@ -74,7 +74,7 @@ Detalhes: [`core/README.md`](core/README.md) · [`core/SECURITY.md`](core/SECURI
 
 ### Falso positivo antivírus
 
-O executável pede administrador, inicia PowerShell visível só para o motor e altera caches/registro com consentimento. Isso se parece com o que um RAT faz, então assinaturas genéricas disparam. Mitigações reais: certificado Authenticode no CI, metadados Win32 (nome/versão/copyright) e **não** empacotar com ps2exe. Não dá para “esconder” o comportamento sem mentir para o Windows.
+O executável pede administrador, inicia o motor PowerShell **minimizado** (não oculto) e altera caches/registro com consentimento. Isso se parece com o que um RAT faz, então assinaturas genéricas disparam. Mitigações reais: certificado Authenticode no CI, metadados Win32 (nome/versão/copyright), janela do motor visível e **não** empacotar com ps2exe. Não dá para “esconder” o comportamento sem mentir para o Windows.
 
 ### Linux
 
@@ -104,7 +104,18 @@ Sem otimizador de sistema legítimo. Ver [`ios/README.md`](ios/README.md).
 
 ---
 
-## Novidades v5.10.1
+## Novidades v5.10.2
+
+- **Limpeza Segura honesta:** falha de ponto de restauração, ARP ou NetBIOS não marca o lote inteiro como fracasso.
+- **Lixeira com tamanho real:** mede antes/depois; não inventa “1 MB”.
+- **Atualizador não interrompe um job:** o painel fica bloqueado durante a checagem e o app não fecha no meio de uma execução.
+- **Remover agenda na GUI:** Ferramentas e Inicialização passam a cancelar a tarefa semanal.
+- **PARAR no início vale:** o motor não apaga um pedido de cancelamento feito enquanto o PowerShell ainda sobe.
+- **Menus iguais:** CLI e `Executar.bat` usam `8` = dry-run, `9` = agendar, `R` = remover.
+- **Status em inglês** mostra a mensagem real, não “Activity recorded.”
+- **Motor visível:** a GUI abre `powershell.exe` minimizado no job de limpeza (saúde/atualização continuam sem janela).
+
+### Incluído desde v5.10.1
 
 - **EXE com identidade Win32:** nome, versão, copyright e link do repositório no binário (sem ps2exe).
 - **Menos isca para antivírus em teste:** o contrato de layout da GUI não gera mais `.exe` em `%TEMP%`.
@@ -309,8 +320,8 @@ powershell -ExecutionPolicy Bypass -File .\Compilar-EXE.ps1
 ```
 
 ```bash
-git tag v5.10.1
-git push origin v5.10.1
+git tag v5.10.2
+git push origin v5.10.2
 # Actions: testes Windows + smoke Bash → ZIP + SHA256SUMS.txt
 ```
 

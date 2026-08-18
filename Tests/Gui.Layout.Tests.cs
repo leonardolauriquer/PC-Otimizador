@@ -129,7 +129,7 @@ namespace PCOtimizador
 
             var tools = Field<FlowLayoutPanel>(form, "_toolsFlow");
             Check(tools != null && tools.AutoScroll && tools.WrapContents, size + " tools page is responsive and scrollable");
-            if (tools != null) Check(tools.Controls.Count == 5, size + " tools page has five cards");
+            if (tools != null) Check(tools.Controls.Count == 6, size + " tools page has six cards");
             var helpScroll = Field<Panel>(form, "_helpScroll");
             var helpBox = Field<Control>(form, "_helpBox");
             bool helpFitsHorizontally = helpScroll != null && helpBox != null && helpBox.Left >= 0 && helpBox.Right <= helpScroll.ClientSize.Width;

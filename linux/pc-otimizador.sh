@@ -4,7 +4,7 @@
 set -u
 # nao use set -e: limpeza continua mesmo se um passo falhar
 
-VERSION="5.10.1-linux"
+VERSION="5.10.2-linux"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DRY_RUN=0
 AUTO_YES=0

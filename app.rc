@@ -1,8 +1,8 @@
 1 24 "app.manifest"
 
 1 VERSIONINFO
-FILEVERSION 5,10,1,0
-PRODUCTVERSION 5,10,1,0
+FILEVERSION 5,10,2,0
+PRODUCTVERSION 5,10,2,0
 FILEFLAGSMASK 0x3fL
 FILEFLAGS 0x0L
 FILEOS 0x40004L
@@ -15,12 +15,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "PC Otimizador Pro"
             VALUE "FileDescription", "PC Otimizador Pro - limpeza e otimizacao segura do Windows"
-            VALUE "FileVersion", "5.10.1.0"
+            VALUE "FileVersion", "5.10.2.0"
             VALUE "InternalName", "PC-Otimizador"
             VALUE "LegalCopyright", "Copyright (c) 2026 PC Otimizador Pro. MIT License."
             VALUE "OriginalFilename", "PC-Otimizador.exe"
             VALUE "ProductName", "PC Otimizador Pro"
-            VALUE "ProductVersion", "5.10.1.0"
+            VALUE "ProductVersion", "5.10.2.0"
             VALUE "Comments", "Open source. https://github.com/leonardolauriquer/PC-Otimizador"
         END
     END
